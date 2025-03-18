@@ -7,10 +7,19 @@ from interactions import Client, Intents, SlashContext, listen, slash_command, s
 # Loads environment variables
 load_dotenv()
 
-# Regex pattern to ensure OSRS gp logic is enforced
-AMOUNT_PATTERN = r"^\d*[kmbKMB]?$"
-
 bot = Client(intents=Intents.DEFAULT)
+
+def parse_amount(amount: str) -> int:
+    """
+    Takes the valid input and multiplys it based on letter if present.
+    """
+    multipliers = {'k': 1_000, 'm': 1_000_000, 'b': 1_000_000_000} # Underscores are for readability
+    multiplier = amount[-1].lower()
+
+    if multiplier in multipliers:
+        return int(amount[:-1]) * multipliers[multiplier]
+    
+    return int(amount)
 
 @listen()
 async def on_ready():
@@ -21,6 +30,9 @@ async def on_ready():
 # @slash_command(name="my_command", description="My first command :)")
 # async def my_command_function(ctx: SlashContext):
 #     await ctx.send("Hello World")
+
+# Regex pattern to ensure OSRS gp logic is enforced
+AMOUNT_PATTERN = r"^\d*[kmbKMB]?$"
 
 # Command that logs player donations
 @slash_command(name="donation", description="Log a donation")
@@ -44,8 +56,8 @@ async def my_command_function(ctx: SlashContext, user: str, amount: str):
         await ctx.send(f"Amount given ({amount}) is not valid. Please follow same logic in game for typing amounts (eg. 42244, 24m, 11k)")
         return
     
-    print(amount[-1:].lower)
-    
+    amount = parse_amount(amount)
+        
     await ctx.send(f"You input {amount}")
 
 bot.start(os.getenv("BOT_TOKEN"))
