@@ -1,0 +1,23 @@
+# Environmental variable storage
+.env
+
+# Python
+__pycache__/
+
+# Virtual environment directory
+venv/
+
+# IDE or editor specific
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# pytest
+.cache/
