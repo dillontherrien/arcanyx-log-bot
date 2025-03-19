@@ -7,7 +7,8 @@ Ensure you have the following installed:
 - [Python 3.9+](https://www.python.org/downloads/)  
 - [pip](https://pip.pypa.io/en/stable/installation/)  
 - [Git](https://git-scm.com/downloads)  
-- A [Discord bot token](https://discord.com/developers/applications)  
+- A [Discord bot token](https://discord.com/developers/applications)
+- [Docker](https://docs.docker.com/get-started/get-docker/)
 
 ### 1️⃣ Clone the Repository  
 ```sh
