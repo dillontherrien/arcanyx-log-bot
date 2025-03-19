@@ -1,0 +1,12 @@
+services:
+  discord-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: discord-bot
+    environment:
+      - MONGO_URL=${MONGO_URL}  # Pull from .env file
+      - BOT_TOKEN=${BOT_TOKEN}  # Pull from .env file
+    volumes:
+      - .:/app  # Mount the current directory to /app inside the container
+    restart: unless-stopped  # Automatically restart the container if it crashes
