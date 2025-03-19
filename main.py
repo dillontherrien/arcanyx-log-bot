@@ -11,9 +11,9 @@ load_dotenv()
 # Functions
 def parse_amount(amount: str) -> int:
     """
-    Takes the valid input and multiplys it based on letter if present.
+    Takes the valid input and multiplies it based on the letter if present.
     """
-    multipliers = {'k': 1_000, 'm': 1_000_000, 'b': 1_000_000_000} # Underscores are for readability
+    multipliers = {'k': 1_000, 'm': 1_000_000, 'b': 1_000_000_000}
     multiplier = amount[-1].lower()
 
     if multiplier in multipliers:
@@ -23,7 +23,7 @@ def parse_amount(amount: str) -> int:
 
 def get_mongo_client() -> MongoClient:
     """
-    Creates a MonboDB client.
+    Creates a MongoDB client.
     """
     mongo_url = os.getenv("MONGO_URL")
     if not mongo_url:
@@ -37,9 +37,11 @@ mongo_db = get_mongo_client()
 # Selects the correct database
 db = mongo_db["arcanyx"]
 
-
-def insert_transaction(type, discord_id, staff_discord_id, amount):
-     # Ensure discord_id is a string or a primitive type
+def insert_transaction(type: str, discord_id: str, staff_discord_id: str, amount: int):
+    """
+    Generic function to insert a transaction into the database.
+    """
+    # Ensure discord_id is a string or a primitive type
     if isinstance(discord_id, Member):
         discord_id = discord_id.id  # Extract the discordId from the Member object
 
@@ -76,6 +78,29 @@ def insert_transaction(type, discord_id, staff_discord_id, amount):
 # Regex pattern to ensure OSRS gp logic is enforced
 AMOUNT_PATTERN = r"^\d*[kmbKMB]?$"
 
+# Common function for donation and payout
+async def log_transaction(ctx: SlashContext, user: str, amount: str, transaction_type: str):
+    await ctx.defer()
+    amount_str = amount
+    amount = amount.replace(",", "")
+    
+    # Checks that the input amount is valid format
+    if not re.match(AMOUNT_PATTERN, amount):
+        await ctx.send(f"Amount given ({amount}) is not valid. Please follow same logic in game for typing amounts (eg. 42244, 24m, 11k)")
+        return
+
+    amount = parse_amount(amount)
+    staff = ctx.author_id
+
+    insert_transaction(transaction_type, user, staff, amount)
+    
+    staff_member = await ctx.bot.fetch_user(staff)
+    staff_mention = f"<@{staff_member.id}>"  # Mention staff
+
+    # Send confirmation with staff mention at the end
+    verb = "donated" if transaction_type == "donation" else "received"
+    await ctx.send(f"{transaction_type.capitalize()} Logged! User `{user}` {verb} `{amount_str}` OSRS gold. Logged by {staff_mention}")
+
 # Command that logs player donations
 @slash_command(name="donation", description="Log a donation")
 @slash_option(      
@@ -91,26 +116,7 @@ AMOUNT_PATTERN = r"^\d*[kmbKMB]?$"
     opt_type=OptionType.STRING
 )
 async def donation_command(ctx: SlashContext, user: str, amount: str):
-    await ctx.defer()
-    amount_str = amount
-    amount = amount.replace(",", "")
-    
-    # Checks that the input amount is valid format
-    if not re.match(AMOUNT_PATTERN, amount):
-        await ctx.send(f"Amount given ({amount}) is not valid. Please follow same logic in game for typing amounts (eg. 42244, 24m, 11k)")
-        return
-
-    type = "donation"
-    amount = parse_amount(amount)
-    staff = ctx.author_id
-
-    insert_transaction(type, user, staff, amount)# Fetch the staff member's username for mention
-    
-    staff_member = await ctx.bot.fetch_user(staff)
-    staff_mention = f"<@{staff_member.id}>"  # Mention staff
-
-    # Send confirmation with staff mention at the end
-    await ctx.send(f"Donation Logged! User `{user}` donated `{amount_str}` OSRS gold. Logged by {staff_mention}")
+    await log_transaction(ctx, user, amount, "donation")
 
 # Command that logs player payouts
 @slash_command(name="payout", description="Log a payout")
@@ -127,27 +133,7 @@ async def donation_command(ctx: SlashContext, user: str, amount: str):
     opt_type=OptionType.STRING
 )
 async def payout_command(ctx: SlashContext, user: str, amount: str):
-    await ctx.defer()
-    amount_str = amount
-    amount = amount.replace(",", "")
-    
-    # Checks that the input amount is valid format
-    if not re.match(AMOUNT_PATTERN, amount):
-        await ctx.send(f"Amount given ({amount}) is not valid. Please follow same logic in game for typing amounts (eg. 42244, 24m, 11k)")
-        return
-
-    type = "payout"
-    amount = parse_amount(amount)
-    staff = ctx.author_id
-
-    insert_transaction(type, user, staff, amount)# Fetch the staff member's username for mention
-    
-    staff_member = await ctx.bot.fetch_user(staff)
-    staff_mention = f"<@{staff_member.id}>"  # Mention staff
-
-    # Send confirmation with staff mention at the end
-    await ctx.send(f"Payout Logged! User `{user}` donated `{amount_str}` OSRS gold. Logged by {staff_mention}")
-
+    await log_transaction(ctx, user, amount, "payout")
 
 # Creates bot object
 bot = Client(intents=Intents.DEFAULT)
