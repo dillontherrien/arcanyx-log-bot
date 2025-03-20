@@ -9,6 +9,11 @@ from pymongo import MongoClient
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+# Constants
+LOWER_LIMIT = 1
+UPPER_LIMIT = 5_000_000_000
+AMOUNT_PATTERN = r"^\d+[kmbKMB]?$" # Regex pattern to ensure OSRS gp logic is enforced
+
 # Loads environment variables
 load_dotenv()
 
@@ -37,13 +42,13 @@ def check_amount_limits(amount: int) -> bool:
     """
     logging.info(f"Checking if amount is inside transaction limits")
     
-    if amount < 1:
-        logging.warning(f"{amount} is below transaction lower limit of 1.")
+    # Amount lower limit check
+    if amount < LOWER_LIMIT:
+        logging.warning(f"{amount} is below transaction lower limit of {LOWER_LIMIT:,}.")
         return False
-        
-        
-    if amount > 5_000_000_000:
-        logging.warning(f"{amount} exceeds transaction upper limit of 5 billion.")
+    # Amount upper limit check
+    if amount > UPPER_LIMIT:
+        logging.warning(f"{amount} exceeds transaction upper limit of {UPPER_LIMIT:,}.")
         return False
     
     return True
@@ -65,6 +70,21 @@ def get_mongo_client() -> MongoClient:
 mongo_db = get_mongo_client()
 # Selects the correct database
 db = mongo_db["arcanyx"]
+
+def get_balance(staff_discord_id: str):
+    """
+    Gets current balance of a staff member.
+    """
+    if not staff_discord_id:
+        logging.warning("No staff discord id given to retreive balance")
+        return
+    
+    logging.info(f"Getting balance for staff member {staff_discord_id}")
+    
+    staff = db.members.find_one({"discordId": str(staff_discord_id)})
+    
+    # Retreives balance from MongoDB
+    # balance = db.balances.find_one
 
 def insert_transaction(type: str, discord_id: str, staff_discord_id: str, amount: int):
     """
@@ -100,9 +120,6 @@ def insert_transaction(type: str, discord_id: str, staff_discord_id: str, amount
 
     result = db.transaction_log.insert_one(transaction)
     logging.info(f"Transaction inserted with _id: {result.inserted_id}")
-
-# Regex pattern to ensure OSRS gp logic is enforced
-AMOUNT_PATTERN = r"^\d+[kmbKMB]?$"
 
 # Common function for donation and payout
 async def log_transaction(ctx: SlashContext, user: str, amount: str, transaction_type: str):
