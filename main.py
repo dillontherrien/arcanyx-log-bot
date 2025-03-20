@@ -17,6 +17,29 @@ AMOUNT_PATTERN = r"^\d+[kmbKMB]?$" # Regex pattern to ensure OSRS gp logic is en
 # Loads environment variables
 load_dotenv()
 
+# Error handlers
+async def amount_invalid(ctx: SlashContext, amount: str):
+    """
+    Tells user that the given amount is invalid
+    """
+    await ctx.send(f"`{amount}` is not a valid amount. Please follow same logic in game for typing amounts (eg. 42244, 24m, 11k).")
+    raise ValueError(f"Invalid amount format: {amount}")
+
+async def amount_outside_limits(ctx: SlashContext, amount: str):
+    """
+    Tells user that the given amount is outside of bounds
+    """
+    await ctx.send(f"`{amount}` is not valid amount. Amount must be between {LOWER_LIMIT:,} and {UPPER_LIMIT:,}.")
+    raise ValueError(f"Amount outside bounds: {amount}")
+    
+
+async def staff_not_found(ctx: SlashContext, discord_id: str):
+    """
+    Tells user that the given amount is outside of bounds
+    """
+    await ctx.send(f"Staff member with discord_id `{discord_id}` not found in the database.")
+    raise ValueError(f"Staff member not found database: {discord_id}")
+
 # Functions
 def parse_amount(amount: str) -> int:
     """
@@ -71,7 +94,9 @@ mongo_db = get_mongo_client()
 # Selects the correct database
 db = mongo_db["arcanyx"]
 
-def get_balance(staff_discord_id: str):
+# TODO: Balance mongodb collection structure
+# TODO: Get balance function
+def get_staff_balance(ctx: SlashContext, staff_discord_id: str):
     """
     Gets current balance of a staff member.
     """
@@ -83,11 +108,15 @@ def get_balance(staff_discord_id: str):
     
     staff = db.members.find_one({"discordId": str(staff_discord_id)})
     
+    if not staff:
+        staff_not_found(ctx, staff_discord_id)
+        return
+
     # Retreives balance from MongoDB
     # balance = db.balances.find_one
 
 
-def insert_transaction(type: str, discord_id: str, staff_discord_id: str, amount: int):
+def insert_transaction(ctx: SlashContext, type: str, discord_id: str, staff_discord_id: str, amount: int):
     """
     Generic function to insert a transaction into the database.
     """
@@ -108,8 +137,7 @@ def insert_transaction(type: str, discord_id: str, staff_discord_id: str, amount
         logging.warning(f"Member with discordId {discord_id} not found!")
         return
     if not staff:
-        logging.warning(f"Staff member with discordId {staff_discord_id} not found!")
-        return
+        staff_not_found(ctx, staff_discord_id)
 
     transaction = {
         "type": type,
@@ -121,21 +149,6 @@ def insert_transaction(type: str, discord_id: str, staff_discord_id: str, amount
 
     result = db.transaction_log.insert_one(transaction)
     logging.info(f"Transaction inserted with _id: {result.inserted_id}")
-
-
-async def amount_invalid(ctx: SlashContext, amount: str):
-    """
-    Tells user that the given amount is invalid
-    """
-    logging.warning(f"Invalid amount format: {amount}")
-    await ctx.send(f"Amount given ({amount}) is not valid. Please follow same logic in game for typing amounts (eg. 42244, 24m, 11k).")
-
-async def amount_outside_limits(ctx: SlashContext, amount: str):
-    """
-    Tells user that the given amount is outside of bounds
-    """
-    logging.warning(f"Amount outside bounds: {amount}")
-    await ctx.send(f"Amount given ({amount}) is not valid. Amount must be between {LOWER_LIMIT:,} and {UPPER_LIMIT:,}.")
 
 
 #TODO: Log transfer function
@@ -165,17 +178,15 @@ async def log_transaction(ctx: SlashContext, user: str, amount: str, transaction
     
     if not re.match(AMOUNT_PATTERN, amount):
         amount_invalid(ctx, amount_str)
-        return
 
     amount = parse_amount(amount)
     
     if not check_amount_limits(amount):
         amount_outside_limits(ctx, amount_str)
-        return
     
     staff = ctx.author_id
 
-    insert_transaction(transaction_type, user, staff, amount)
+    insert_transaction(ctx, transaction_type, user, staff, amount)
     
     staff_member = await ctx.bot.fetch_user(staff)
     staff_mention = f"<@{staff_member.id}>"
