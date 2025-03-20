@@ -45,6 +45,8 @@ def check_amount_limits(amount: int) -> bool:
     if amount > 5_000_000_000:
         logging.warning(f"{amount} exceeds transaction upper limit of 5 billion.")
         return False
+    
+    return True
 
 def get_mongo_client() -> MongoClient:
     """
