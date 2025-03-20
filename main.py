@@ -30,6 +30,22 @@ def parse_amount(amount: str) -> int:
     logging.info(f"Converted {amount} to {result}")
     return result
 
+def check_amount_limits(amount: int) -> bool:
+    """
+    Enforces lower limit of 1 and upper limit of 5 billion.
+    Enforces OSRS gold logic (k, m, b accepted as multipliers)
+    """
+    logging.info(f"Checking if amount is inside transaction limits")
+    
+    if amount < 1:
+        logging.warning(f"{amount} is below transaction lower limit of 1.")
+        return False
+        
+        
+    if amount > 5_000_000_000:
+        logging.warning(f"{amount} exceeds transaction upper limit of 5 billion.")
+        return False
+
 def get_mongo_client() -> MongoClient:
     """
     Creates a MongoDB client.
@@ -95,10 +111,15 @@ async def log_transaction(ctx: SlashContext, user: str, amount: str, transaction
     
     if not re.match(AMOUNT_PATTERN, amount):
         logging.warning(f"Invalid amount format: {amount}")
-        await ctx.send(f"Amount given ({amount}) is not valid. Please follow same logic in game for typing amounts (eg. 42244, 24m, 11k)")
+        await ctx.send(f"Amount given ({amount}) is not valid. Please follow same logic in game for typing amounts (eg. 42244, 24m, 11k).")
         return
 
     amount = parse_amount(amount)
+    
+    if not check_amount_limits(amount):
+        await ctx.send(f"Amount given ({amount}) is not valid. Transactions must be between 1 gp - 5 billion gp.")
+        return
+    
     staff = ctx.author_id
 
     insert_transaction(transaction_type, user, staff, amount)
@@ -137,7 +158,7 @@ async def donation_command(ctx: SlashContext, user: str, amount: str):
 )
 @slash_option(
     name="amount",
-    description="Amount of OSRS gold. Same logic as in game",
+    description="Amount of OSRS gold. Same logic as in game (Between 1 and 5 billion)",
     required=True,
     opt_type=OptionType.STRING
 )
