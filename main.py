@@ -84,7 +84,7 @@ def insert_transaction(type: str, discord_id: str, staff_discord_id: str, amount
     logging.info(f"Transaction inserted with _id: {result.inserted_id}")
 
 # Regex pattern to ensure OSRS gp logic is enforced
-AMOUNT_PATTERN = r"^\d*[kmbKMB]?$"
+AMOUNT_PATTERN = r"^\d+[kmbKMB]?$"
 
 # Common function for donation and payout
 async def log_transaction(ctx: SlashContext, user: str, amount: str, transaction_type: str):
