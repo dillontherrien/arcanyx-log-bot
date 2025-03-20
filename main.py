@@ -86,6 +86,7 @@ def get_balance(staff_discord_id: str):
     # Retreives balance from MongoDB
     # balance = db.balances.find_one
 
+
 def insert_transaction(type: str, discord_id: str, staff_discord_id: str, amount: int):
     """
     Generic function to insert a transaction into the database.
@@ -121,22 +122,55 @@ def insert_transaction(type: str, discord_id: str, staff_discord_id: str, amount
     result = db.transaction_log.insert_one(transaction)
     logging.info(f"Transaction inserted with _id: {result.inserted_id}")
 
+
+async def amount_invalid(ctx: SlashContext, amount: str):
+    """
+    Tells user that the given amount is invalid
+    """
+    logging.warning(f"Invalid amount format: {amount}")
+    await ctx.send(f"Amount given ({amount}) is not valid. Please follow same logic in game for typing amounts (eg. 42244, 24m, 11k).")
+
+async def amount_outside_limits(ctx: SlashContext, amount: str):
+    """
+    Tells user that the given amount is outside of bounds
+    """
+    logging.warning(f"Amount outside bounds: {amount}")
+    await ctx.send(f"Amount given ({amount}) is not valid. Amount must be between {LOWER_LIMIT:,} and {UPPER_LIMIT:,}.")
+
+
+#TODO: Log transfer function
+# async def log_transfer(ctx: SlashContext, user_from: str, user_to: str, amount: str):
+#     logging.info(f"Logging transfer: from_user={user_from}, to_user={user_to}, amount={amount}")
+#     await ctx.defer()
+#     amount_str : str = amount
+#     amount = amount.replace(",", "")
+
+#     if not re.match(AMOUNT_PATTERN, amount):
+#         amount_invalid(ctx, amount_str)
+#         return
+    
+#     amount = parse_amount(amount)
+    
+#     if not check_amount_limits(amount):
+#         amount_outside_limits(ctx, amount_str)
+#         return
+    
+
 # Common function for donation and payout
 async def log_transaction(ctx: SlashContext, user: str, amount: str, transaction_type: str):
     logging.info(f"Logging transaction: type={transaction_type}, user={user}, amount={amount}")
     await ctx.defer()
-    amount_str = amount
+    amount_str : str = amount
     amount = amount.replace(",", "")
     
     if not re.match(AMOUNT_PATTERN, amount):
-        logging.warning(f"Invalid amount format: {amount}")
-        await ctx.send(f"Amount given ({amount}) is not valid. Please follow same logic in game for typing amounts (eg. 42244, 24m, 11k).")
+        amount_invalid(ctx, amount_str)
         return
 
     amount = parse_amount(amount)
     
     if not check_amount_limits(amount):
-        await ctx.send(f"Amount given ({amount}) is not valid. Transactions must be between 1 gp - 5 billion gp.")
+        amount_outside_limits(ctx, amount_str)
         return
     
     staff = ctx.author_id
