@@ -1,5 +1,6 @@
 
 # Discord Bot Setup & Contribution Guide
+![CodeQL](https://github.com/OWNER/REPO/actions/workflows/codeql-analysis.yml/badge.svg)
 
 ## 🛠 Setup & Running the Discord Bot with Docker
 
