@@ -142,25 +142,33 @@ async def get_staff_balance(ctx: SlashContext, user: OptionType.USER) -> int:
 
     logging.info(balance_doc)
 
-    return balance_doc.get("amount")
+    return balance_doc.get("balance", 0)
 
 
-def set_staff_balance(ctx: SlashContext, user: OptionType.USER, amount: int):
+def set_staff_balance(user: OptionType.USER, amount: int):
     """
     Generic function to set a balance of a user in the database.
     """
     logging.info(f"Setting staff {user}'s balance to `{amount:,}`")
-
+    
     if not user:
         logging.warning("No user given to set balance")
         return
 
-    if isinstance(discord_id, Member):
-        discord_id = discord_id.id  # Extract the discordId from the Member object
-        
-    db.balances.update_one({
-        {}
-    })
+    staff = db.members.find_one({"discordId": str(user.id)})
+
+    result = db.balances.update_one(
+        {"staff_id": staff["_id"]},
+        {"$set": {"balance": amount}},
+        upsert=True
+    )
+    
+    if result.upserted_id:
+        logging.info(f"No previous balance found, inserting balance of {amount:,}")
+    elif result.matched_count > 0:
+        logging.info(f"Updated {staff}'s balance to be {amount: ,}")
+    else:
+        logging.info(f"No updates were made, as there was no change")
 
 
 def insert_transaction(ctx: SlashContext, type: str, user: OptionType.USER, staff: OptionType.USER, amount: int):
@@ -170,19 +178,14 @@ def insert_transaction(ctx: SlashContext, type: str, user: OptionType.USER, staf
     logging.info(
         f"Inserting transaction: type={type}, user={user}, staff={staff}, amount={amount}")
 
-    if isinstance(user, Member):
-        discord_id = user.id  # Extract the discordId from the Member object
-    if isinstance(staff, Member):
-        staff_discord_id = staff.id  # Extract the staff discordId from the Member object
-
-    member = db.members.find_one({"discordId": str(discord_id)})
-    staff = db.members.find_one({"discordId": str(staff_discord_id)})
+    member = db.members.find_one({"discordId": str(user.id)})
+    staff = db.members.find_one({"discordId": str(staff.id)})
 
     if not type:
         logging.error("Transaction type not defined!")
         return
     if not member:
-        logging.warning(f"Member with discordId {discord_id} not found!")
+        logging.warning(f"Member with discord ID {user.id} not found!")
         return
     if not staff:
         staff_not_found(ctx, staff)
@@ -239,11 +242,8 @@ async def log_transaction(ctx: SlashContext, user: OptionType.USER, amount: str,
 
     insert_transaction(ctx, transaction_type, user, staff, amount)
 
-    staff_member = await ctx.bot.fetch_user(staff)
-    staff_mention = f"<@{staff_member.id}>"
-
     verb = "donated" if transaction_type == "donation" else "received"
-    await ctx.send(f"{transaction_type.capitalize()} Logged! User `{user}` {verb} `{amount:,}` OSRS gold. Logged by {staff_mention}", ephemeral=True)
+    await ctx.send(f"{transaction_type.capitalize()} Logged! User `{user}` {verb} `{amount:,}` OSRS gold. Logged by {staff.mention}", ephemeral=True)
     logging.info(
         f"Transaction successfully logged: {transaction_type} for {user}")
 
@@ -257,11 +257,45 @@ async def log_transaction(ctx: SlashContext, user: OptionType.USER, amount: str,
     opt_type=OptionType.USER
 )
 async def get_balance_command(ctx: SlashContext, user: OptionType.USER = None):
+    await ctx.defer()
     if user is None:
         user = ctx.author
-    balance = await get_staff_balance(ctx, user)
-    if balance:
+    balance : int = await get_staff_balance(ctx, user)
+    if balance is not None:
         await ctx.send(f"{user.mention}'s current balance is `{balance:,}`", ephemeral=True)
+
+
+# Command that sets a staff member's balance
+@slash_command(name="setbalance", description="Set a staff member's balance")
+@slash_option(
+    name="user",
+    description="User this transaction is for",
+    required=True,
+    opt_type=OptionType.USER
+)
+@slash_option(
+    name="amount",
+    description="Amount of OSRS gold. Same logic as in game",
+    required=True,
+    opt_type=OptionType.STRING
+)
+async def set_balance_command(ctx: SlashContext, user: OptionType.USER, amount: str):
+    await ctx.defer()
+    amount_str: str = amount
+    amount = amount.replace(",", "")
+
+    if not re.match(AMOUNT_PATTERN, amount):
+        await amount_invalid(ctx, amount_str)
+        return
+
+    amount = parse_amount(amount)
+
+    if not check_amount_limits(amount):
+        await amount_outside_limits(ctx, amount_str)
+        return
+    
+    set_staff_balance(user, amount)
+    await ctx.send(f"{user.mention}'s balance has been set to`{amount:,}`", ephemeral=True)
 
 
 # Command that logs player donations
