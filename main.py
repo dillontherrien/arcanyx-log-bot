@@ -23,22 +23,29 @@ async def amount_invalid(ctx: SlashContext, amount: str):
     Tells user that the given amount is invalid
     """
     await ctx.send(f"`{amount}` is not a valid amount. Please follow same logic in game for typing amounts (eg. 42244, 24m, 11k).")
-    raise ValueError(f"Invalid amount format: {amount}")
+    logging.warning(f"Invalid amount format: {amount}")
 
 async def amount_outside_limits(ctx: SlashContext, amount: str):
     """
     Tells user that the given amount is outside of bounds
     """
     await ctx.send(f"`{amount}` is not valid amount. Amount must be between {LOWER_LIMIT:,} and {UPPER_LIMIT:,}.")
-    raise ValueError(f"Amount outside bounds: {amount}")
+    logging.warning(f"Amount outside bounds: {amount}")
     
 
 async def staff_not_found(ctx: SlashContext, discord_id: str):
     """
     Tells user that the given amount is outside of bounds
     """
-    await ctx.send(f"Staff member with discord_id `{discord_id}` not found in the database.")
-    raise ValueError(f"Staff member not found database: {discord_id}")
+    await ctx.send(f"Staff member with discord_id `{discord_id}` not found in the database. Is this actually a staff member?")
+    logging.warning(f"Staff member not found database: {discord_id}")
+    
+async def balance_not_found(ctx: SlashContext, discord_username: str):
+    """
+    Tells user that the balance is not found for the given staff member
+    """
+    await ctx.send(f"Staff member `{discord_username}` does not have any balance.")
+    logging.warning(f"Staff member has no balance: {discord_username}")
 
 # Functions
 def parse_amount(amount: str) -> int:
@@ -96,39 +103,49 @@ db = mongo_db["arcanyx"]
 
 # TODO: Balance mongodb collection structure
 # TODO: Get balance function
-def get_staff_balance(ctx: SlashContext, staff_discord_id: str):
+async def get_staff_balance(ctx: SlashContext, staff: str) -> int:
     """
     Gets current balance of a staff member.
     """
-    if not staff_discord_id:
-        logging.warning("No staff discord id given to retreive balance")
+    if not staff:
+        logging.warning("No staff given to retreive balance")
         return
     
-    logging.info(f"Getting balance for staff member {staff_discord_id}")
+    logging.info(f"Getting balance for staff member {staff}")
     
-    staff = db.members.find_one({"discordId": str(staff_discord_id)})
+    staff = db.members.find_one({"discordId": str(staff.id)})
     
     if not staff:
-        staff_not_found(ctx, staff_discord_id)
+        await staff_not_found(ctx, staff)
         return
+    
+    staff_obj_id = staff.get("_id")
+    logging.info(f"Found staff member's id: {staff_obj_id}")
 
-    # Retreives balance from MongoDB
-    # balance = db.balances.find_one
+    balance_doc = db.balances.find_one({"staff_id": staff_obj_id})
+    
+    if not balance_doc:
+        await balance_not_found(ctx, staff.get("discordUsername"))
+        return None
+
+    logging.info(balance_doc)
+    
+    return balance_doc.get("amount")
 
 
-def insert_transaction(ctx: SlashContext, type: str, discord_id: str, staff_discord_id: str, amount: int):
+def insert_transaction(ctx: SlashContext, type: str, discord_id: str, staff: str, amount: int):
     """
     Generic function to insert a transaction into the database.
     """
-    logging.info(f"Inserting transaction: type={type}, user={discord_id}, staff={staff_discord_id}, amount={amount}")
+    logging.info(f"Inserting transaction: type={type}, user={discord_id}, staff={staff}, amount={amount}")
 
     if isinstance(discord_id, Member):
         discord_id = discord_id.id  # Extract the discordId from the Member object
-    if isinstance(staff_discord_id, Member):
-        staff_discord_id = staff_discord_id.id  # Extract the staff discordId from the Member object
+    if isinstance(staff, Member):
+        staff = staff.id  # Extract the staff discordId from the Member object
 
     member = db.members.find_one({"discordId": str(discord_id)})
-    staff = db.members.find_one({"discordId": str(staff_discord_id)})
+    staff = db.members.find_one({"discordId": str(staff)})
 
     if not type:
         logging.error("Transaction type not defined!")
@@ -137,7 +154,7 @@ def insert_transaction(ctx: SlashContext, type: str, discord_id: str, staff_disc
         logging.warning(f"Member with discordId {discord_id} not found!")
         return
     if not staff:
-        staff_not_found(ctx, staff_discord_id)
+        staff_not_found(ctx, staff)
 
     transaction = {
         "type": type,
@@ -177,12 +194,14 @@ async def log_transaction(ctx: SlashContext, user: str, amount: str, transaction
     amount = amount.replace(",", "")
     
     if not re.match(AMOUNT_PATTERN, amount):
-        amount_invalid(ctx, amount_str)
+        await amount_invalid(ctx, amount_str)
+        return
 
     amount = parse_amount(amount)
     
     if not check_amount_limits(amount):
-        amount_outside_limits(ctx, amount_str)
+        await amount_outside_limits(ctx, amount_str)
+        return
     
     staff = ctx.author_id
 
@@ -192,8 +211,22 @@ async def log_transaction(ctx: SlashContext, user: str, amount: str, transaction
     staff_mention = f"<@{staff_member.id}>"
     
     verb = "donated" if transaction_type == "donation" else "received"
-    await ctx.send(f"{transaction_type.capitalize()} Logged! User `{user}` {verb} `{amount_str}` OSRS gold. Logged by {staff_mention}")
+    await ctx.send(f"{transaction_type.capitalize()} Logged! User `{user}` {verb} `{amount:,}` OSRS gold. Logged by {staff_mention}")
     logging.info(f"Transaction successfully logged: {transaction_type} for {user}")
+
+
+# Command that gets the balance for a staff member
+@slash_command(name="balance", description="Gets balance for a given staff member")
+@slash_option(
+    name="user",
+    description="Staff member",
+    required=True,
+    opt_type=OptionType.USER
+)
+async def get_balance_command(ctx: SlashContext, user: str):
+    balance = await get_staff_balance(ctx, user)
+    await ctx.send(f"{ctx.author.nickname}'s current balance is `{balance:,}`")
+
 
 # Command that logs player donations
 @slash_command(name="donation", description="Log a donation")
@@ -211,6 +244,7 @@ async def log_transaction(ctx: SlashContext, user: str, amount: str, transaction
 )
 async def donation_command(ctx: SlashContext, user: str, amount: str):
     await log_transaction(ctx, user, amount, "donation")
+
 
 # Command that logs player payouts
 @slash_command(name="payout", description="Log a payout")
