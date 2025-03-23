@@ -15,6 +15,7 @@ LOWER_LIMIT = 1
 UPPER_LIMIT = 5_000_000_000
 # Regex pattern to ensure OSRS gp logic is enforced
 AMOUNT_PATTERN = r"^\d+[kmbKMB]?$"
+NEGATIVE_TRANSACTIONS = ["payout"]  # Determines whether balance is added or removed
 
 # Loads environment variables
 load_dotenv()
@@ -42,7 +43,9 @@ async def staff_not_found(ctx: SlashContext, user: OptionType.USER):
     """
     Tells user that the given amount is outside of bounds
     """
-    await ctx.send(f"Staff member with `{user}` not found in the database. Is this actually a staff member?", ephemeral=True)
+
+    await ctx.send(f"{user.mention} not found in the database. Is this actually a staff member?", ephemeral=True)
+
     logging.warning(f"Staff member not found database: {user}")
 
 
@@ -50,7 +53,9 @@ async def balance_not_found(ctx: SlashContext, user: OptionType.USER):
     """
     Tells user that the balance is not found for the given staff member
     """
-    await ctx.send(f"Staff member `{user}` does not have any balance.", ephemeral=True)
+
+    await ctx.send(f"{user.mention} does not have any balance.", ephemeral=True)
+
     logging.warning(f"Staff member has no balance: {user}")
 
 # Functions
@@ -66,11 +71,11 @@ def parse_amount(amount: str) -> int:
 
     if multiplier in multipliers:
         result = int(amount[:-1]) * multipliers[multiplier]
-        logging.info(f"Converted {amount} to {result}")
+        logging.info(f"Multiplier used. Multiplied {amount} to {result:,}")
         return result
 
     result = int(amount)
-    logging.info(f"Converted {amount} to {result}")
+    logging.info(f"Parsed amount from {amount} to {result:,}")
     return result
 
 
@@ -118,6 +123,7 @@ db = mongo_db["arcanyx"]
 async def get_staff_balance(ctx: SlashContext, user: OptionType.USER) -> int:
     """
     Gets current balance of a staff member.
+
     """
     if not user:
         logging.warning("No user given to retreive balance")
@@ -142,7 +148,7 @@ async def get_staff_balance(ctx: SlashContext, user: OptionType.USER) -> int:
 
     logging.info(balance_doc)
 
-    return balance_doc.get("balance", 0)
+    return int(balance_doc.get("balance", 0))
 
 
 def set_staff_balance(user: OptionType.USER, amount: int):
@@ -150,7 +156,7 @@ def set_staff_balance(user: OptionType.USER, amount: int):
     Generic function to set a balance of a user in the database.
     """
     logging.info(f"Setting staff {user}'s balance to `{amount:,}`")
-    
+
     if not user:
         logging.warning("No user given to set balance")
         return
@@ -162,9 +168,11 @@ def set_staff_balance(user: OptionType.USER, amount: int):
         {"$set": {"balance": amount}},
         upsert=True
     )
-    
+
     if result.upserted_id:
-        logging.info(f"No previous balance found, inserting balance of {amount:,}")
+        logging.info(
+            f"No previous balance found, inserting balance of {amount:,}")
+
     elif result.matched_count > 0:
         logging.info(f"Updated {staff}'s balance to be {amount: ,}")
     else:
@@ -232,18 +240,34 @@ async def log_transaction(ctx: SlashContext, user: OptionType.USER, amount: str,
         await amount_invalid(ctx, amount_str)
         return
 
-    amount = parse_amount(amount)
+    amount: int = parse_amount(amount)
 
     if not check_amount_limits(amount):
         await amount_outside_limits(ctx, amount_str)
         return
 
     staff = ctx.author
+    balance = await get_staff_balance(ctx, staff) or 0
+    adj_balance_amount = amount
+
+    # Payouts must exist in the balance
+    if transaction_type in NEGATIVE_TRANSACTIONS:
+        # Ensures staff member has the funds to payout to user
+        if balance < amount:
+            await ctx.send(f"You do not have the balance for this {transaction_type}. Current balance is `{balance:,}`, Requested amount is `{amount:,}`")
+            return
+
+        adj_balance_amount *= -1
+
+    balance += adj_balance_amount  # New balance
+    set_staff_balance(staff, balance)
+    logging.info(f"{staff.mention}'s new balance is {balance:,}")
 
     insert_transaction(ctx, transaction_type, user, staff, amount)
 
     verb = "donated" if transaction_type == "donation" else "received"
-    await ctx.send(f"{transaction_type.capitalize()} Logged! User `{user}` {verb} `{amount:,}` OSRS gold. Logged by {staff.mention}", ephemeral=True)
+
+    await ctx.send(f"{transaction_type.capitalize()} Logged! User {user.mention} {verb} `{amount:,}` OSRS gold. Your new balance is `{balance:,}`", ephemeral=True)
     logging.info(
         f"Transaction successfully logged: {transaction_type} for {user}")
 
@@ -260,7 +284,9 @@ async def get_balance_command(ctx: SlashContext, user: OptionType.USER = None):
     await ctx.defer()
     if user is None:
         user = ctx.author
-    balance : int = await get_staff_balance(ctx, user)
+
+    balance: int = await get_staff_balance(ctx, user)
+
     if balance is not None:
         await ctx.send(f"{user.mention}'s current balance is `{balance:,}`", ephemeral=True)
 
@@ -293,9 +319,9 @@ async def set_balance_command(ctx: SlashContext, user: OptionType.USER, amount: 
     if not check_amount_limits(amount):
         await amount_outside_limits(ctx, amount_str)
         return
-    
+
     set_staff_balance(user, amount)
-    await ctx.send(f"{user.mention}'s balance has been set to`{amount:,}`", ephemeral=True)
+    await ctx.send(f"{user.mention}'s balance has been set to `{amount:,}`", ephemeral=True)
 
 
 # Command that logs player donations
