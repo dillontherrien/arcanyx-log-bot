@@ -13,7 +13,6 @@ logging.basicConfig(level=logging.INFO,
 # Constants
 LOWER_LIMIT = 1
 UPPER_LIMIT = 5_000_000_000
-
 # Regex pattern to ensure OSRS gp logic is enforced
 AMOUNT_PATTERN = r"^\d+[kmbKMB]?$"
 NEGATIVE_TRANSACTIONS = ["payout"]  # Determines whether balance is added or removed
@@ -44,7 +43,9 @@ async def staff_not_found(ctx: SlashContext, user: OptionType.USER):
     """
     Tells user that the given amount is outside of bounds
     """
+
     await ctx.send(f"{user.mention} not found in the database. Is this actually a staff member?", ephemeral=True)
+
     logging.warning(f"Staff member not found database: {user}")
 
 
@@ -52,7 +53,9 @@ async def balance_not_found(ctx: SlashContext, user: OptionType.USER):
     """
     Tells user that the balance is not found for the given staff member
     """
+
     await ctx.send(f"{user.mention} does not have any balance.", ephemeral=True)
+
     logging.warning(f"Staff member has no balance: {user}")
 
 # Functions
@@ -120,6 +123,7 @@ db = mongo_db["arcanyx"]
 async def get_staff_balance(ctx: SlashContext, user: OptionType.USER) -> int:
     """
     Gets current balance of a staff member.
+
     """
     if not user:
         logging.warning("No user given to retreive balance")
@@ -168,6 +172,7 @@ def set_staff_balance(user: OptionType.USER, amount: int):
     if result.upserted_id:
         logging.info(
             f"No previous balance found, inserting balance of {amount:,}")
+
     elif result.matched_count > 0:
         logging.info(f"Updated {staff}'s balance to be {amount: ,}")
     else:
@@ -261,6 +266,7 @@ async def log_transaction(ctx: SlashContext, user: OptionType.USER, amount: str,
     insert_transaction(ctx, transaction_type, user, staff, amount)
 
     verb = "donated" if transaction_type == "donation" else "received"
+
     await ctx.send(f"{transaction_type.capitalize()} Logged! User {user.mention} {verb} `{amount:,}` OSRS gold. Your new balance is `{balance:,}`", ephemeral=True)
     logging.info(
         f"Transaction successfully logged: {transaction_type} for {user}")
@@ -278,7 +284,9 @@ async def get_balance_command(ctx: SlashContext, user: OptionType.USER = None):
     await ctx.defer()
     if user is None:
         user = ctx.author
+
     balance: int = await get_staff_balance(ctx, user)
+
     if balance is not None:
         await ctx.send(f"{user.mention}'s current balance is `{balance:,}`", ephemeral=True)
 
