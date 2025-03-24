@@ -21,6 +21,7 @@ Create a `.env` file in the root directory and add:
 ```
 BOT_TOKEN=your_discord_bot_token_here
 MONGO_URL=your_mongodb_connection_string
+BOT_COMMANDS_CHANNEL_ID=your_discord_channel_id
 ```
 
 ### 3️⃣ Build & Start the Bot with Docker Compose  
