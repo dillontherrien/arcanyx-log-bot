@@ -368,6 +368,29 @@ async def on_ready():
     logging.info("Bot is ready")
     logging.info(f"This bot is owned by {bot.owner}")
 
+    # Define the channel ID where the bot should post the startup message
+    CHANNEL_ID = int(os.getenv("BOT_COMMANDS_CHANNEL_ID"))  # Store this in your .env file
+
+    # Fetch the channel object
+    channel = await bot.fetch_channel(CHANNEL_ID)
+    if channel:
+        # Construct the command list message
+        commands = [
+            ("/balance", "Gets the balance for a given staff member."),
+            ("/setbalance", "Set a staff member's balance."),
+            ("/donation", "Log a donation."),
+            ("/payout", "Log a payout."),
+        ]
+
+        command_list = "\n".join(f"**{cmd}** - {desc}" for cmd, desc in commands)
+        startup_message = f"**Bot is online!**\nHere are the available commands:\n{command_list}"
+
+        # Send the message
+        await channel.send(startup_message)
+    else:
+        logging.warning("Could not find the startup message channel.")
+
+
 # Starts bot
 if __name__ == "__main__":
     logging.info("Starting bot...")
