@@ -317,7 +317,7 @@ async def log_transaction(ctx: SlashContext, user: OptionType.USER, amount: str,
     set_staff_balance(ctx.author, balance)
     logging.info(f"{ctx.author.mention}'s new balance is {balance:,}")
 
-    insert_transaction(ctx, transaction_type, user, ctx.author, amount)
+    await insert_transaction(ctx, transaction_type, user, ctx.author, amount)
 
     verb = "donated" if transaction_type == "donation" else "received"
 
