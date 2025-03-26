@@ -16,8 +16,7 @@ LOWER_LIMIT = 1
 UPPER_LIMIT = 5_000_000_000
 # Regex pattern to ensure OSRS gp logic is enforced
 AMOUNT_PATTERN = r"^\d+[kmbKMB]?$"
-# Determines whether balance is added or removed
-NEGATIVE_TRANSACTIONS = ["payout"]
+NEGATIVE_TRANSACTIONS = ["payout"]  # Determines whether balance is added or removed
 
 # Loads environment variables
 load_dotenv()
@@ -159,6 +158,7 @@ def get_staff_member_from_discord_id(discord_id: str) -> Optional[dict]:
 async def get_staff_balance(ctx: SlashContext, user: OptionType.USER) -> int:
     """
     Gets current balance of a staff member.
+
     """
     if not user:
         logging.warning("No user given to retreive balance")
@@ -301,6 +301,7 @@ async def log_transaction(ctx: SlashContext, user: OptionType.USER, amount: str,
         return
 
     balance = await get_staff_balance(ctx, ctx.author) or 0
+
     adj_balance_amount = amount
 
     # Payouts must exist in the balance
