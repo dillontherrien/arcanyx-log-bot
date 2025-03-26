@@ -2,6 +2,7 @@ import os
 import re
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 from dotenv import load_dotenv
 from interactions import Client, Intents, Member, SlashContext, listen, slash_command, slash_option, OptionType
 from pymongo import MongoClient
@@ -120,6 +121,40 @@ mongo_db = get_mongo_client()
 db = mongo_db["arcanyx"]
 
 
+def get_member_from_discord_id(discord_id: str) -> Optional[dict]:
+    """
+    Gets member from database, if none present, creates one 
+    """
+    if not discord_id:
+        logging.warning("No discord id given to find user's object")
+        return None
+
+    member = db.members.find_one({"discordId": discord_id})
+
+    if not member:
+        logging.warning(f"No user found in data for discord id: {discord_id}")
+        return None
+
+    return member
+
+
+def get_staff_member_from_discord_id(discord_id: str) -> Optional[dict]:
+    """
+    Gets staff from database, if none present, creates one 
+    """
+    if not discord_id:
+        logging.warning("No discord id given to find staff's object")
+        return None
+
+    staff = db.members.find_one({"discordId": discord_id, "isStaff": True})
+
+    if not staff:
+        logging.warning(f"No staff found in database for discord id: {discord_id}")
+        return None
+
+    return staff
+
+
 async def get_staff_balance(ctx: SlashContext, user: OptionType.USER) -> int:
     """
     Gets current balance of a staff member.
@@ -131,24 +166,13 @@ async def get_staff_balance(ctx: SlashContext, user: OptionType.USER) -> int:
 
     logging.info(f"Getting balance for staff member {user}")
 
-    staff = db.members.find_one({"discordId": str(user.id)})
+    staff = get_staff_member_from_discord_id(str(user.id))
 
     if not staff:
         await staff_not_found(ctx, user)
         return
 
-    staff_obj_id = staff.get("_id")
-    logging.info(f"Found staff member's id: {staff_obj_id}")
-
-    balance_doc = db.balances.find_one({"staff_id": staff_obj_id})
-
-    if not balance_doc:
-        await balance_not_found(ctx, user)
-        return None
-
-    logging.info(balance_doc)
-
-    return int(balance_doc.get("balance", 0))
+    return int(staff.get("finances", {}).get("currentBalance", 0))
 
 
 def set_staff_balance(user: OptionType.USER, amount: int):
@@ -161,45 +185,66 @@ def set_staff_balance(user: OptionType.USER, amount: int):
         logging.warning("No user given to set balance")
         return
 
-    staff = db.members.find_one({"discordId": str(user.id)})
-
-    result = db.balances.update_one(
-        {"staff_id": staff["_id"]},
-        {"$set": {"balance": amount}},
-        upsert=True
+    result = db.members.update_one(
+        {"discordId": str(user.id)},
+        {"$set": {"finances.currentBalance": amount}},
     )
 
-    if result.upserted_id:
-        logging.info(
-            f"No previous balance found, inserting balance of {amount:,}")
-
-    elif result.matched_count > 0:
-        logging.info(f"Updated {staff}'s balance to be {amount: ,}")
+    if result.matched_count > 0:
+        logging.info(f"Updated balance to be {amount: ,}")
     else:
         logging.info(f"No updates were made, as there was no change")
 
 
-def insert_transaction(ctx: SlashContext, type: str, user: OptionType.USER, staff: OptionType.USER, amount: int):
+def add_to_user_total(transaction_type: str, user: OptionType.USER, amount: int):
+    """
+    Adds to user's running total of donations or payouts
+    """
+    if transaction_type not in ["donation", "payout"]:
+        logging.warning(f"Invalid transaction type given: {transaction_type}")
+        return
+
+    field = "totalDonations" if transaction_type == "donation" else "totalPayouts"
+    logging.info(f"Setting staff {user}'s balance to `{amount:,}`")
+
+    if not user:
+        logging.warning("No user given to increase total")
+        return
+
+    update_field = "finances." + field
+    result = db.members.update_one(
+        {"discordId": str(user.id)},
+        {"$set": {update_field: amount}},
+    )
+
+    if result.matched_count > 0:
+        logging.info(f"Updated {transaction_type} total to be {amount: ,}")
+    else:
+        logging.info(f"No updates were made, as there was no change")
+
+
+async def insert_transaction(ctx: SlashContext, transaction_type: str, user: OptionType.USER, staff: OptionType.USER, amount: int):
     """
     Generic function to insert a transaction into the database.
     """
     logging.info(
-        f"Inserting transaction: type={type}, user={user}, staff={staff}, amount={amount}")
+        f"Inserting transaction: type={transaction_type}, user={user}, staff={staff}, amount={amount}")
 
-    member = db.members.find_one({"discordId": str(user.id)})
-    staff = db.members.find_one({"discordId": str(staff.id)})
+    member = get_member_from_discord_id(str(user.id))
+    staff = get_member_from_discord_id(str(staff.id))
 
-    if not type:
+    if not transaction_type:
         logging.error("Transaction type not defined!")
         return
     if not member:
         logging.warning(f"Member with discord ID {user.id} not found!")
         return
     if not staff:
-        staff_not_found(ctx, staff)
+        await staff_not_found(ctx, staff)
+        return
 
     transaction = {
-        "type": type,
+        "type": transaction_type,
         "member_id": member["_id"],
         "staff_id": staff["_id"],
         "amount": amount,
@@ -208,6 +253,8 @@ def insert_transaction(ctx: SlashContext, type: str, user: OptionType.USER, staf
 
     result = db.transaction_log.insert_one(transaction)
     logging.info(f"Transaction inserted with _id: {result.inserted_id}")
+
+    add_to_user_total(transaction_type, user, amount)
 
 
 # TODO: Log transfer function
@@ -246,8 +293,15 @@ async def log_transaction(ctx: SlashContext, user: OptionType.USER, amount: str,
         await amount_outside_limits(ctx, amount_str)
         return
 
-    staff = ctx.author
-    balance = await get_staff_balance(ctx, staff) or 0
+    staff = get_staff_member_from_discord_id(str(ctx.author.id))
+    
+    if not staff:
+        await staff_not_found(ctx, ctx.author)
+        logging.warning(f"Command executor not staff member, cannot complete transaction!")
+        return
+
+    balance = await get_staff_balance(ctx, ctx.author) or 0
+
     adj_balance_amount = amount
 
     # Payouts must exist in the balance
@@ -260,10 +314,10 @@ async def log_transaction(ctx: SlashContext, user: OptionType.USER, amount: str,
         adj_balance_amount *= -1
 
     balance += adj_balance_amount  # New balance
-    set_staff_balance(staff, balance)
-    logging.info(f"{staff.mention}'s new balance is {balance:,}")
+    set_staff_balance(ctx.author, balance)
+    logging.info(f"{ctx.author.mention}'s new balance is {balance:,}")
 
-    insert_transaction(ctx, transaction_type, user, staff, amount)
+    insert_transaction(ctx, transaction_type, user, ctx.author, amount)
 
     verb = "donated" if transaction_type == "donation" else "received"
 
@@ -285,7 +339,7 @@ async def get_balance_command(ctx: SlashContext, user: OptionType.USER = None):
     if user is None:
         user = ctx.author
 
-    balance: int = await get_staff_balance(ctx, user)
+    balance = await get_staff_balance(ctx, user)
 
     if balance is not None:
         await ctx.send(f"{user.mention}'s current balance is `{balance:,}`", ephemeral=True)
@@ -369,7 +423,7 @@ async def on_ready():
     logging.info(f"This bot is owned by {bot.owner}")
 
     # Define the channel ID where the bot should post the startup message
-    CHANNEL_ID = int(os.getenv("BOT_COMMANDS_CHANNEL_ID"))  # Store this in your .env file
+    CHANNEL_ID = int(os.getenv("BOT_COMMANDS_CHANNEL_ID"))
 
     # Fetch the channel object
     channel = await bot.fetch_channel(CHANNEL_ID)
@@ -382,11 +436,12 @@ async def on_ready():
             ("/payout", "Log a payout."),
         ]
 
-        command_list = "\n".join(f"**{cmd}** - {desc}" for cmd, desc in commands)
+        command_list = "\n".join(
+            f"**{cmd}** - {desc}" for cmd, desc in commands)
         startup_message = f"**Bot is online!**\nHere are the available commands:\n{command_list}"
 
         # Send the message
-        await channel.send(startup_message)
+        # await channel.send(startup_message)
     else:
         logging.warning("Could not find the startup message channel.")
 
