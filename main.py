@@ -260,7 +260,7 @@ async def insert_transaction(ctx: SlashContext, transaction_type: str, user: Opt
 # TODO: Log transfer function
 # async def log_transfer(ctx: SlashContext, user_from: str, user_to: str, amount: str):
 #     logging.info(f"Logging transfer: from_user={user_from}, to_user={user_to}, amount={amount}")
-#     await ctx.defer()
+#     await ctx.defer(ephemeral=True)
 #     amount_str : str = amount
 #     amount = amount.replace(",", "")
 
@@ -279,7 +279,7 @@ async def insert_transaction(ctx: SlashContext, transaction_type: str, user: Opt
 async def log_transaction(ctx: SlashContext, user: OptionType.USER, amount: str, transaction_type: str):
     logging.info(
         f"Logging transaction: type={transaction_type}, user={user}, amount={amount}")
-    await ctx.defer()
+    await ctx.defer(ephemeral=True)
     amount_str: str = amount
     amount = amount.replace(",", "")
 
@@ -335,7 +335,7 @@ async def log_transaction(ctx: SlashContext, user: OptionType.USER, amount: str,
     opt_type=OptionType.USER
 )
 async def get_balance_command(ctx: SlashContext, user: OptionType.USER = None):
-    await ctx.defer()
+    await ctx.defer(ephemeral=True)
     if user is None:
         user = ctx.author
 
@@ -344,7 +344,7 @@ async def get_balance_command(ctx: SlashContext, user: OptionType.USER = None):
     if balance is not None:
         await ctx.send(f"{user.mention}'s current balance is `{balance:,}`", ephemeral=True)
 
-
+   
 # Command that sets a staff member's balance
 @slash_command(name="setbalance", description="Set a staff member's balance")
 @slash_option(
@@ -360,7 +360,7 @@ async def get_balance_command(ctx: SlashContext, user: OptionType.USER = None):
     opt_type=OptionType.STRING
 )
 async def set_balance_command(ctx: SlashContext, user: OptionType.USER, amount: str):
-    await ctx.defer()
+    await ctx.defer(ephemeral=True)
     amount_str: str = amount
     amount = amount.replace(",", "")
 
@@ -431,6 +431,7 @@ async def on_ready():
         # Construct the command list message
         commands = [
             ("/balance", "Gets the balance for a given staff member."),
+            ("/totalbalance", "Gets the total balance for all staff members."),
             ("/setbalance", "Set a staff member's balance."),
             ("/donation", "Log a donation."),
             ("/payout", "Log a payout."),
