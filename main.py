@@ -181,7 +181,7 @@ def set_staff_balance(user: OptionType.USER, amount: int):
     """
     Generic function to set a balance of a user in the database.
     """
-    logging.info(f"Setting staff {user}'s balance to `{amount:,}`")
+    logging.info(f"Setting staff {user}'s balance to **{amount:,}**")
 
     if not user:
         logging.warning("No user given to set balance")
@@ -206,13 +206,13 @@ def add_to_user_total(transaction_type: str, user: OptionType.USER, amount: int)
         logging.warning(f"Invalid transaction type given: {transaction_type}")
         return
 
-    field = "totalDonations" if transaction_type == "donation" else "totalPayouts"
-    logging.info(f"Setting staff {user}'s balance to `{amount:,}`")
+    logging.info(f"Adding **{amount:,}** to user's {transaction_type} total.")
 
     if not user:
-        logging.warning("No user given to increase total")
+        logging.warning(f"No user given to increase {transaction_type} total by **{amount:,}**.")
         return
-
+    
+    field = "totalDonations" if transaction_type == "donation" else "totalPayouts"
     update_field = "finances." + field
     result = db.members.update_one(
         {"discordId": str(user.id)},
@@ -225,7 +225,7 @@ def add_to_user_total(transaction_type: str, user: OptionType.USER, amount: int)
         logging.info(f"No updates were made, as there was no change")
 
 
-async def insert_transaction(ctx: SlashContext, transaction_type: str, user: OptionType.USER, staff: OptionType.USER, amount: int):
+async def insert_transaction(ctx: SlashContext, transaction_type: str, user: OptionType.USER, staff: OptionType.USER, amount: int, reason: str = None):
     """
     Generic function to insert a transaction into the database.
     """
@@ -252,6 +252,9 @@ async def insert_transaction(ctx: SlashContext, transaction_type: str, user: Opt
         "amount": amount,
         "donation_time": datetime.now(timezone.utc)
     }
+    # Add reason if one is given
+    if reason:
+        transaction["reason"] = reason
 
     result = db.transaction_log.insert_one(transaction)
     logging.info(f"Transaction inserted with _id: {result.inserted_id}")
@@ -278,7 +281,7 @@ async def insert_transaction(ctx: SlashContext, transaction_type: str, user: Opt
 
 
 # Common function for donation and payout
-async def log_transaction(ctx: SlashContext, user: OptionType.USER, amount: str, transaction_type: str):
+async def log_transaction(ctx: SlashContext, user: OptionType.USER, amount: str, transaction_type: str, reason: str = None):
     logging.info(
         f"Logging transaction: type={transaction_type}, user={user}, amount={amount}")
     await ctx.defer(ephemeral=True)
@@ -311,20 +314,27 @@ async def log_transaction(ctx: SlashContext, user: OptionType.USER, amount: str,
     if transaction_type in NEGATIVE_TRANSACTIONS:
         # Ensures staff member has the funds to payout to user
         if balance < amount:
-            await ctx.send(f"You do not have the balance for this {transaction_type}. Current balance is `{balance:,}`, Requested amount is `{amount:,}`")
+            await ctx.send(f"You do not have the balance for this {transaction_type}. Current balance is **{balance:,}**, Requested amount is **{amount:,}**")
             return
 
         adj_balance_amount *= -1
 
+        # Also ensures there is a reason
+        if not reason:
+            await ctx.send(f"A reason is required for a {transaction_type}! {transaction_type.capitalize} was not completed.")
+            logging.info(
+                f"No reason was given for the {transaction_type}. Stopping transaction")
+            return
+
     balance += adj_balance_amount  # New balance
     set_staff_balance(ctx.author, balance)
     logging.info(f"{ctx.author.mention}'s new balance is {balance:,}")
-
-    await insert_transaction(ctx, transaction_type, user, ctx.author, amount)
-
-    verb = "donated" if transaction_type == "donation" else "received"
-
-    await ctx.send(f"{transaction_type.capitalize()} Logged! User {user.mention} {verb} `{amount:,}` OSRS gold. Your new balance is `{balance:,}`", ephemeral=True)
+    await insert_transaction(ctx, transaction_type, user, ctx.author, amount, reason)
+    
+    verb = "received" if transaction_type in NEGATIVE_TRANSACTIONS else "donated"
+    action_string = f" for **{reason}**." if transaction_type in NEGATIVE_TRANSACTIONS else  "."
+    await ctx.send(f"{transaction_type.capitalize()} Logged! User {user.mention} {verb} **{amount:,}** OSRS gold{action_string} \n\nYour new balance is **{balance:,}**", ephemeral=True)
+    
     logging.info(
         f"Transaction successfully logged: {transaction_type} for {user}")
 
@@ -345,7 +355,7 @@ async def get_balance_command(ctx: SlashContext, user: OptionType.USER = None):
     balance = await get_staff_balance(ctx, user)
 
     if balance is not None:
-        await ctx.send(f"{user.mention}'s current balance is `{balance:,}`", ephemeral=True)
+        await ctx.send(f"{user.mention}'s current balance is **{balance:,}**", ephemeral=True)
 
 
 # Command that gets the total balance for all staff and broken down by staff member
@@ -395,7 +405,7 @@ async def set_balance_command(ctx: SlashContext, user: OptionType.USER, amount: 
         return
 
     set_staff_balance(user, amount)
-    await ctx.send(f"{user.mention}'s balance has been set to `{amount:,}`", ephemeral=True)
+    await ctx.send(f"{user.mention}'s balance has been set to **{amount:,}**", ephemeral=True)
 
 
 # Command that logs player donations
@@ -430,8 +440,14 @@ async def donation_command(ctx: SlashContext, user: OptionType.USER, amount: str
     required=True,
     opt_type=OptionType.STRING
 )
-async def payout_command(ctx: SlashContext, user: OptionType.USER, amount: str):
-    await log_transaction(ctx, user, amount, "payout")
+@slash_option(
+    name="reason",
+    description="Why is this member getting gold?",
+    required=True,
+    opt_type=OptionType.STRING
+)
+async def payout_command(ctx: SlashContext, user: OptionType.USER, amount: str, reason: str):
+    await log_transaction(ctx, user, amount, "payout", reason)
 
 # Creates bot object
 bot = Client(intents=Intents.DEFAULT)
