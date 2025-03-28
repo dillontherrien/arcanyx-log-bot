@@ -16,7 +16,8 @@ LOWER_LIMIT = 1
 UPPER_LIMIT = 5_000_000_000
 # Regex pattern to ensure OSRS gp logic is enforced
 AMOUNT_PATTERN = r"^\d+[kmbKMB]?$"
-NEGATIVE_TRANSACTIONS = ["payout"]  # Determines whether balance is added or removed
+# Determines whether balance is added or removed
+NEGATIVE_TRANSACTIONS = ["payout"]
 
 # Loads environment variables
 load_dotenv()
@@ -149,7 +150,8 @@ def get_staff_member_from_discord_id(discord_id: str) -> Optional[dict]:
     staff = db.members.find_one({"discordId": discord_id, "isStaff": True})
 
     if not staff:
-        logging.warning(f"No staff found in database for discord id: {discord_id}")
+        logging.warning(
+            f"No staff found in database for discord id: {discord_id}")
         return None
 
     return staff
@@ -294,10 +296,11 @@ async def log_transaction(ctx: SlashContext, user: OptionType.USER, amount: str,
         return
 
     staff = get_staff_member_from_discord_id(str(ctx.author.id))
-    
+
     if not staff:
         await staff_not_found(ctx, ctx.author)
-        logging.warning(f"Command executor not staff member, cannot complete transaction!")
+        logging.warning(
+            f"Command executor not staff member, cannot complete transaction!")
         return
 
     balance = await get_staff_balance(ctx, ctx.author) or 0
@@ -344,7 +347,24 @@ async def get_balance_command(ctx: SlashContext, user: OptionType.USER = None):
     if balance is not None:
         await ctx.send(f"{user.mention}'s current balance is `{balance:,}`", ephemeral=True)
 
-   
+
+# Command that gets the total balance for all staff and broken down by staff member
+@slash_command(name="totalbalance", description="Gets total balance of all staff members")
+async def total_balance_command(ctx: SlashContext):
+    await ctx.defer(ephemeral=True)
+
+    staff_members = db.members.find({"isStaff": True, "finances.currentBalance": {
+                                    "$gt": 0}}).sort({"finances.currentBalance": -1}).to_list()
+    logging.info(staff_members)
+    total_balance = f"**TOTAL CLAN BALANCE:** {sum(staff["finances"]["currentBalance"] for staff in staff_members):,}\n\n"
+
+    member_totals = "__**BALANCE BY USER**__\n"
+    member_totals += "\n".join(
+        f"**{staff["discordUsername"]}** - {staff["finances"]["currentBalance"]:,}" for staff in staff_members)
+
+    await ctx.send(total_balance + member_totals, ephemeral=True)
+
+
 # Command that sets a staff member's balance
 @slash_command(name="setbalance", description="Set a staff member's balance")
 @slash_option(
