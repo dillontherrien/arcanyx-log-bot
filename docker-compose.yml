@@ -5,8 +5,22 @@ services:
       dockerfile: Dockerfile
     container_name: discord-bot
     environment:
-      - MONGO_URL=${MONGO_URL}  # Pull from .env file
-      - BOT_TOKEN=${BOT_TOKEN}  # Pull from .env file
+      MONGO_URL: ${MONGO_URL}  # Using external MongoDB
+      BOT_TOKEN: ${BOT_TOKEN}  # Bot token from .env
     volumes:
-      - .:/app  # Mount the current directory to /app inside the container
-    restart: unless-stopped  # Automatically restart the container if it crashes
+      - .:/app  # Mount the current directory inside the container
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana-enterprise
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-storage:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
+volumes:
+  grafana-storage:  # Persistent storage for Grafana
