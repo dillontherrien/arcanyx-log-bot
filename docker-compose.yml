@@ -5,8 +5,8 @@ services:
       dockerfile: Dockerfile
     container_name: discord-bot
     environment:
-      MONGO_URL: ${MONGO_URL}  # Using external MongoDB
-      BOT_TOKEN: ${BOT_TOKEN}  # Bot token from .env
+      - MONGO_URL=${MONGO_URL}  # Using external MongoDB
+      - BOT_TOKEN=${BOT_TOKEN}  # Bot token from .env
     volumes:
       - .:/app  # Mount the current directory inside the container
     restart: unless-stopped
