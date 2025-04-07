@@ -6,25 +6,17 @@ from typing import Optional
 from dotenv import load_dotenv
 from interactions import Client, Intents, Member, SlashContext, listen, slash_command, slash_option, OptionType
 from pymongo import MongoClient
+from constants import LOWER_LIMIT, UPPER_LIMIT, AMOUNT_PATTERN, NEGATIVE_TRANSACTIONS
+from utils import Utils
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Constants
-LOWER_LIMIT = 1
-UPPER_LIMIT = 5_000_000_000
-# Regex pattern to ensure OSRS gp logic is enforced
-AMOUNT_PATTERN = r"^\d+[kmbKMB]?$"
-# Determines whether balance is added or removed
-NEGATIVE_TRANSACTIONS = ["payout"]
-
 # Loads environment variables
 load_dotenv()
 
 # Error handlers
-
-
 async def amount_invalid(ctx: SlashContext, amount: str):
     """
     Tells user that the given amount is invalid
@@ -61,46 +53,6 @@ async def balance_not_found(ctx: SlashContext, user: OptionType.USER):
     logging.warning(f"Staff member has no balance: {user}")
 
 # Functions
-
-
-def parse_amount(amount: str) -> int:
-    """
-    Takes the valid input and multiplies it based on the letter if present.
-    """
-    logging.info(f"Parsing amount: {amount}")
-    multipliers = {'k': 1_000, 'm': 1_000_000, 'b': 1_000_000_000}
-    multiplier = amount[-1].lower()
-
-    if multiplier in multipliers:
-        result = int(amount[:-1]) * multipliers[multiplier]
-        logging.info(f"Multiplier used. Multiplied {amount} to {result:,}")
-        return result
-
-    result = int(amount)
-    logging.info(f"Parsed amount from {amount} to {result:,}")
-    return result
-
-
-def check_amount_limits(amount: int) -> bool:
-    """
-    Enforces lower limit of 1 and upper limit of 5 billion.
-    Enforces OSRS gold logic (k, m, b accepted as multipliers)
-    """
-    logging.info(f"Checking if amount is inside transaction limits")
-
-    # Amount lower limit check
-    if amount < LOWER_LIMIT:
-        logging.warning(
-            f"{amount} is below transaction lower limit of {LOWER_LIMIT:,}.")
-        return False
-    # Amount upper limit check
-    if amount > UPPER_LIMIT:
-        logging.warning(
-            f"{amount} exceeds transaction upper limit of {UPPER_LIMIT:,}.")
-        return False
-
-    return True
-
 
 def get_mongo_client() -> MongoClient:
     """
@@ -272,9 +224,9 @@ async def log_transaction(ctx: SlashContext, staff: OptionType.USER, user: Optio
         await amount_invalid(ctx, amount_str)
         return
 
-    amount: int = parse_amount(amount)
+    amount: int = Utils.parse_amount(amount)
 
-    if not check_amount_limits(amount):
+    if not Utils.check_amount_limits(amount):
         await amount_outside_limits(ctx, amount_str)
         return
     given_staff = staff
@@ -387,9 +339,9 @@ async def set_balance_command(ctx: SlashContext, staff: OptionType.USER, amount:
         await amount_invalid(ctx, amount_str)
         return
 
-    amount = parse_amount(amount)
+    amount = Utils.parse_amount(amount)
 
-    if not check_amount_limits(amount):
+    if not Utils.check_amount_limits(amount):
         await amount_outside_limits(ctx, amount_str)
         return
     
