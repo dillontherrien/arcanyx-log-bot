@@ -17,6 +17,8 @@ logging.basicConfig(level=logging.INFO,
 load_dotenv()
 
 # Error handlers
+
+
 async def amount_invalid(ctx: SlashContext, amount: str):
     """
     Tells user that the given amount is invalid
@@ -53,6 +55,7 @@ async def balance_not_found(ctx: SlashContext, user: OptionType.USER):
     logging.warning(f"Staff member has no balance: {user}")
 
 # Functions
+
 
 def get_mongo_client() -> MongoClient:
     """
@@ -142,9 +145,10 @@ def add_to_user_total(transaction_type: str, user: OptionType.USER, amount: int)
     logging.info(f"Adding **{amount:,}** to user's {transaction_type} total.")
 
     if not user:
-        logging.warning(f"No user given to increase {transaction_type} total by **{amount:,}**.")
+        logging.warning(
+            f"No user given to increase {transaction_type} total by **{amount:,}**.")
         return
-    
+
     field = "totalDonations" if transaction_type == "donation" else "totalPayouts"
     update_field = "finances." + field
     result = db.members.update_one(
@@ -238,7 +242,8 @@ async def log_transaction(ctx: SlashContext, staff: OptionType.USER, user: Optio
             f"Command executor not staff member, cannot complete transaction!")
         return
 
-    logging.info(f"Trying to get balance from {staff}. his finances {staff.get("finances")}.")
+    logging.info(
+        f"Trying to get balance from {staff}. his finances {staff.get("finances")}.")
     balance = staff.get("finances")["currentBalance"] or 0
 
     adj_balance_amount = amount
@@ -263,11 +268,11 @@ async def log_transaction(ctx: SlashContext, staff: OptionType.USER, user: Optio
     set_staff_balance(staff, balance)
     logging.info(f"{staff}'s new balance is {balance:,}")
     await insert_transaction(ctx, transaction_type, user, staff, amount, reason)
-    
+
     verb = "received" if transaction_type in NEGATIVE_TRANSACTIONS else "donated"
-    action_string = f" for **{reason}**." if transaction_type in NEGATIVE_TRANSACTIONS else  "."
+    action_string = f" for **{reason}**." if transaction_type in NEGATIVE_TRANSACTIONS else "."
     await ctx.send(f"{transaction_type.capitalize()} Logged! Member {user.mention} {verb} **{amount:,}** OSRS gold{action_string} \n\n<@!{staff.get("discordId")}>'s balance is now **{balance:,}**", ephemeral=True)
-    
+
     logging.info(
         f"Transaction successfully logged: {transaction_type} for {user}")
 
@@ -284,7 +289,7 @@ async def get_balance_command(ctx: SlashContext, staff: OptionType.USER = None):
     await ctx.defer(ephemeral=True)
     user = staff
     discord_id = user.id if user else ctx.author_id
-    staff =  await get_staff_member_from_discord_id(str(discord_id))
+    staff = await get_staff_member_from_discord_id(str(discord_id))
 
     if not staff:
         await staff_not_found(ctx, user)
@@ -292,7 +297,8 @@ async def get_balance_command(ctx: SlashContext, staff: OptionType.USER = None):
             f"Command executor not staff member, cannot complete transaction!")
         return
 
-    logging.info(f"Trying to get balance from {staff}. his finances {staff.get("finances")}.")
+    logging.info(
+        f"Trying to get balance from {staff}. his finances {staff.get("finances")}.")
     balance = staff.get("finances")["currentBalance"] or 0
 
     if balance is not None:
@@ -344,7 +350,7 @@ async def set_balance_command(ctx: SlashContext, staff: OptionType.USER, amount:
     if not Utils.check_amount_limits(amount):
         await amount_outside_limits(ctx, amount_str)
         return
-    
+
     user = staff
     staff = await get_staff_member_from_discord_id(str(user.id))
 
@@ -410,6 +416,107 @@ async def donation_command(ctx: SlashContext, staff: OptionType.USER, member: Op
 )
 async def payout_command(ctx: SlashContext, staff: OptionType.USER, member: OptionType.USER, amount: str, reason: str):
     await log_transaction(ctx, staff, member, amount, "payout", reason)
+
+
+# Command that provides results for the given month/year
+@slash_command(name="monthresults", description="Get transaction information for a given month")
+@slash_option(
+    name="month",
+    description="Calendar month (1-12)",
+    required=True,
+    opt_type=OptionType.INTEGER,
+    min_value=1,
+    max_value=12
+)
+@slash_option(
+    name="year",
+    description="Calendar year (2025<)",
+    required=True,
+    opt_type=OptionType.INTEGER,
+    min_value=2025,
+    max_value=datetime.now().year
+)
+async def transaction_results_command(ctx: SlashContext, month: int, year: int):
+    if not Utils.check_month_input(month):
+        await ctx.send(f"Givem month {month} is not a valid month number. (1 - 12 is allowed)")
+        return
+
+    start_date = datetime(year, month, 1)
+    if month == 12:
+        end_date = datetime(year + 1, 1, 1)
+    else:
+        end_date = datetime(year, month + 1, 1)
+
+    # Query
+    results = db.transaction_log.aggregate([
+        {
+            "$lookup": {
+                "from": "members",
+                "localField": "member_id",
+                "foreignField": "_id",
+                "as": "member_info"
+            }
+        },
+        {
+            "$unwind": {
+                "path": "$member_info",
+                "preserveNullAndEmptyArrays": True
+            }
+        },
+        {
+            "$lookup": {
+                "from": "members",
+                "localField": "staff_id",
+                "foreignField": "_id",
+                "as": "staff_info"
+            }
+        },
+        {
+            "$unwind": {
+                "path": "$staff_info",
+                "preserveNullAndEmptyArrays": True
+            }
+        },
+        {
+            "$match": {
+                "donation_time": {
+                    "$gte": start_date,
+                    "$lt": end_date
+                }
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "discordUsername": "$member_info.discordUsername",
+                "staff_discordUsername": "$staff_info.discordUsername",
+                "type": 1,
+                "amount": 1,
+                "donation_time": 1,
+                "reason": 1
+            }
+        },
+        {
+            "$sort": {
+                "amount": -1
+            }
+        }
+    ])
+    overall_balance = 0
+    total_donations = 0
+    total_payouts = 0
+
+    for transaction in results:
+        logging.info(transaction)
+        if transaction["type"] == "donation":
+            total_donations += transaction["amount"]
+            overall_balance += transaction["amount"]
+        else:
+            total_payouts += transaction["amount"]
+            overall_balance -= transaction["amount"]
+
+    await ctx.send(f"Results for {month}/{year}\n\n Total donations: {total_donations:,}\n Total payouts: {total_payouts:,}\n Month's result: **{overall_balance:,}**", ephemeral=True)
+
 
 # Creates bot object
 bot = Client(intents=Intents.DEFAULT)

@@ -1,9 +1,11 @@
 import logging
 from constants import LOWER_LIMIT, UPPER_LIMIT
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
+
 
 class Utils:
     def parse_amount(amount: str) -> int:
@@ -22,7 +24,7 @@ class Utils:
         result = int(amount)
         logging.info(f"Parsed amount from {amount} to {result:,}")
         return result
-    
+
     def check_amount_limits(amount: int) -> bool:
         """
         Enforces lower limit of 1 and upper limit of 5 billion.
@@ -42,3 +44,15 @@ class Utils:
             return False
 
         return True
+
+    def check_month_input(month: int) -> bool:
+        """
+        Returns True if the given month is between 1 and 12 (inclusive).
+        """
+        return 1 <= month <= 12
+
+    def check_year_input(year: int) -> bool:
+        """
+        Returns True if given year is between 2025 and the current year (inclusive)
+        """
+        return 2025 <= year <= datetime.now().year
