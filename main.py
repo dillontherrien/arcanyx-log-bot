@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 from dotenv import load_dotenv
-from interactions import Client, Intents, Member, SlashContext, listen, slash_command, slash_option, OptionType
+from interactions import Client, Intents, Member, SlashCommandChoice, SlashContext, listen, slash_command, slash_option, OptionType
 from pymongo import MongoClient
 from constants import LOWER_LIMIT, UPPER_LIMIT, AMOUNT_PATTERN, NEGATIVE_TRANSACTIONS
 from utils import Utils
@@ -268,7 +268,6 @@ async def log_transaction(ctx: SlashContext, staff: OptionType.USER, user: Optio
     set_staff_balance(staff, balance)
     logging.info(f"{staff}'s new balance is {balance:,}")
     await insert_transaction(ctx, transaction_type, user, staff, amount, reason)
-
     verb = "received" if transaction_type in NEGATIVE_TRANSACTIONS else "donated"
     action_string = f" for **{reason}**." if transaction_type in NEGATIVE_TRANSACTIONS else "."
     await ctx.send(f"{transaction_type.capitalize()} Logged! Member {user.mention} {verb} **{amount:,}** OSRS gold{action_string} \n\n<@!{staff.get("discordId")}>'s balance is now **{balance:,}**", ephemeral=True)
@@ -418,6 +417,86 @@ async def payout_command(ctx: SlashContext, staff: OptionType.USER, member: Opti
     await log_transaction(ctx, staff, member, amount, "payout", reason)
 
 
+# Command that gets last 5 payouts
+@slash_command(name="recent", description="Get the last five logs for a transaction type.")
+@slash_option(
+    name="transaction_type",
+    description="Type of transaction you want to see recents of.",
+    required=True,
+    opt_type=OptionType.STRING,
+    choices=[
+        SlashCommandChoice(name="donations", value="donation"),
+        SlashCommandChoice(name="payouts", value="payout")
+    ]
+)
+async def recent_transactions_command(ctx: SlashContext, transaction_type: str):
+    await ctx.defer(ephemeral=True)
+
+    results = db.transaction_log.aggregate([
+        {
+            "$lookup": {
+                "from": "members",
+                "localField": "member_id",
+                "foreignField": "_id",
+                "as": "member_info"
+            }
+        },
+        {
+            "$unwind": {
+                "path": "$member_info",
+                "preserveNullAndEmptyArrays": True
+            }
+        },
+        {
+            "$lookup": {
+                "from": "members",
+                "localField": "staff_id",
+                "foreignField": "_id",
+                "as": "staff_info"
+            }
+        },
+        {
+            "$unwind": {
+                "path": "$staff_info",
+                "preserveNullAndEmptyArrays": True
+            }
+        },
+        {
+            "$match": {
+                "type": {
+                    "$eq": transaction_type
+                }
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "discordId": "$member_info.discordId",
+                "staff_discordId": "$staff_info.discordId",
+                "type": 1,
+                "amount": 1,
+                "donation_time": 1,
+                "reason": 1
+            }
+        },
+        {
+            "$sort": {
+                "donation_time": -1
+            }
+        },
+        {"$limit": 10}
+    ])
+
+    verb = "received" if transaction_type in NEGATIVE_TRANSACTIONS else "donated"
+    transaction_list = ""
+    for transaction in results:
+        logging.info(transaction)
+        reason = f" for {transaction["reason"] or "NO REASON GIVEN"}" if transaction_type in NEGATIVE_TRANSACTIONS else ""
+        transaction_list += f"<@!{transaction["discordId"]}> {verb} **{transaction["amount"]:,}**{reason}. Logged by <@!{transaction["staff_discordId"]}>\n"
+    transaction_list = transaction_list.rstrip("\n")
+
+    
+    await ctx.send(f"Got some results for ya!\n{transaction_list}")
 # Command that provides results for the given month/year
 @slash_command(name="monthresults", description="Get transaction information for a given month")
 @slash_option(
