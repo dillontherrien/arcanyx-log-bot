@@ -495,9 +495,10 @@ async def recent_transactions_command(ctx: SlashContext, transaction_type: str):
         transaction_list += f"<@!{transaction["discordId"]}> {verb} **{transaction["amount"]:,}**{reason}. Logged by <@!{transaction["staff_discordId"]}>\n"
     transaction_list = transaction_list.rstrip("\n")
 
-    
     await ctx.send(f"Got some results for ya!\n{transaction_list}")
 # Command that provides results for the given month/year
+
+
 @slash_command(name="monthresults", description="Get transaction information for a given month")
 @slash_option(
     name="month",
@@ -517,7 +518,7 @@ async def recent_transactions_command(ctx: SlashContext, transaction_type: str):
 )
 async def transaction_results_command(ctx: SlashContext, month: int, year: int):
     if not Utils.check_month_input(month):
-        await ctx.send(f"Givem month {month} is not a valid month number. (1 - 12 is allowed)")
+        await ctx.send(f"Given month {month} is not a valid month number. (1 - 12 is allowed)")
         return
 
     start_date = datetime(year, month, 1)
