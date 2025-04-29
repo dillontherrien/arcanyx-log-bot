@@ -268,7 +268,7 @@ async def log_transaction(ctx: SlashContext, staff: OptionType.USER, user: Optio
     set_staff_balance(staff, balance)
     logging.info(f"{staff}'s new balance is {balance:,}")
     await insert_transaction(ctx, transaction_type, user, staff, amount, reason)
-    verb = "received" if transaction_type in NEGATIVE_TRANSACTIONS else "donated"
+    verb = "received" if transaction_type in NEGATIVE_TRANSACTIONS else "gave"
     action_string = f" for **{reason}**." if transaction_type in NEGATIVE_TRANSACTIONS else "."
     await ctx.send(f"{transaction_type.capitalize()} Logged! Member {user.mention} {verb} **{amount:,}** OSRS gold{action_string} \n\n<@!{staff.get("discordId")}>'s balance is now **{balance:,}**", ephemeral=True)
 
@@ -385,6 +385,30 @@ async def set_balance_command(ctx: SlashContext, staff: OptionType.USER, amount:
 )
 async def donation_command(ctx: SlashContext, staff: OptionType.USER, member: OptionType.USER, amount: str):
     await log_transaction(ctx, staff, member, amount, "donation")
+
+
+# Command that logs player donations
+@slash_command(name="buyin", description="Log a buyin")
+@slash_option(
+    name="staff",
+    description="Staff member receiving this buy in",
+    required=True,
+    opt_type=OptionType.USER
+)
+@slash_option(
+    name="member",
+    description="Clan member donating the item/gold/bonds",
+    required=True,
+    opt_type=OptionType.USER
+)
+@slash_option(
+    name="amount",
+    description="Amount of OSRS gold. Same logic as in game",
+    required=True,
+    opt_type=OptionType.STRING
+)
+async def donation_command(ctx: SlashContext, staff: OptionType.USER, member: OptionType.USER, amount: str):
+    await log_transaction(ctx, staff, member, amount, "buy in")
 
 
 # Command that logs player payouts
