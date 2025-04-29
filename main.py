@@ -442,7 +442,7 @@ async def payout_command(ctx: SlashContext, staff: OptionType.USER, member: Opti
 
 
 # Command that gets last 5 payouts
-@slash_command(name="recent", description="Get the last five logs for a transaction type.")
+@slash_command(name="recent_transactions", description="Get the last five logs for a transaction type.")
 @slash_option(
     name="transaction_type",
     description="Type of transaction you want to see recents of.",
