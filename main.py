@@ -387,7 +387,7 @@ async def donation_command(ctx: SlashContext, staff: OptionType.USER, member: Op
     await log_transaction(ctx, staff, member, amount, "donation")
 
 
-# Command that logs player donations
+# Command that logs player buyins
 @slash_command(name="buyin", description="Log a buyin")
 @slash_option(
     name="staff",
