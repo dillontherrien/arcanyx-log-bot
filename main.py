@@ -407,7 +407,7 @@ async def donation_command(ctx: SlashContext, staff: OptionType.USER, member: Op
     required=True,
     opt_type=OptionType.STRING
 )
-async def donation_command(ctx: SlashContext, staff: OptionType.USER, member: OptionType.USER, amount: str):
+async def buyin_command(ctx: SlashContext, staff: OptionType.USER, member: OptionType.USER, amount: str):
     await log_transaction(ctx, staff, member, amount, "buy in")
 
 
