@@ -80,7 +80,7 @@ def get_top_donations():
     Gets the top donations and formats them with the top donor highlighted
     """
     results = db.members.find(
-        {"finances.totalDonations": {"$gt": 0}},
+        {"finances.totalDonations": {"$gte": 1_000_000}},
         {
             "discordId": 1,
             "discordUsername": 1,
@@ -114,21 +114,21 @@ def get_top_donations():
         discord_id = transaction["discordId"]
         
         if amount >= 1_000_000_000:
-            categories["1b+ Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000)}m")
+            categories["1b+ Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         if amount >= 500_000_000:
-            categories["500-1b Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000)}m")
+            categories["500-1b Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 250_000_000:
-            categories["250-499m Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000)}m")
+            categories["250-499m Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 100_000_000:
-            categories["100-249m Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000)}m")
+            categories["100-249m Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 50_000_000:
-            categories["50-99m Donor"].append(f"<@!{discord_id}> - {round(amount / 1_000_000, 1)}m")
+            categories["50-99m Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 25_000_000:
-            categories["25-49m Donor"].append(f"<@!{discord_id}> - {round(amount / 1_000_000, 1)}m")
+            categories["25-49m Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 10_000_000:
-            categories["10-24m Donor"].append(f"<@!{discord_id}> - {round(amount / 1_000_000, 1)}m")
+            categories["10-24m Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         else:
-            categories["0-9m Donor"].append(f"<@!{discord_id}> - {round(amount / 1_000_000, 1)}m")
+            categories["0-9m Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
 
     formatted_message = top_donor_line
     for category, members in categories.items():
