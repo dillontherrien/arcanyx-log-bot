@@ -79,41 +79,16 @@ def get_top_donations():
     """
     Gets the top donations and formats them with the top donor highlighted
     """
-    results = db.transaction_log.aggregate([
+    results = db.members.find(
+        {"finances.totalDonations": {"$gt": 0}},
         {
-            "$lookup": {
-                "from": "members",
-                "localField": "member_id",
-                "foreignField": "_id",
-                "as": "member_info"
-            }
-        },
-        {
-            "$unwind": {
-                "path": "$member_info",
-                "preserveNullAndEmptyArrays": True
-            }
-        },
-        {
-            "$match": {
-                "type": {
-                    "$in": ["donation"]
-                }
-            }
-        },
-        {
-            "$group": {
-                "_id": "$member_info.discordId",
-                "total_donated": {"$sum": "$amount"}
-            }
-        },
-        {
-            "$sort": {
-                "total_donated": -1
-            }
-        },
-        {"$limit": 100}
-    ])
+            "discordId": 1,
+            "discordUsername": 1,
+            "finances.totalDonations": 1
+        }
+    ).sort(
+        [("finances.totalDonations", -1)]
+    ).limit(100)
 
     results = list(results)  # Convert cursor to list
 
@@ -121,7 +96,7 @@ def get_top_donations():
         return "No donations found."
 
     top_donor = results[0]
-    top_donor_line = f" \n:gp:**Top Donations**:gp:\n**Money Whale :whale:** \n<@!{top_donor['_id']}> - {int(top_donor['total_donated'] / 1_000_000):,}m\n\n"
+    top_donor_line = f" \n:gp:**Top Donations**:gp:\n**Money Whale :whale:** \n<@!{top_donor['discordId']}> - {int(top_donor['finances']['totalDonations'] / 1_000_000):,}m\n\n"
 
     categories = {
         "1b+ Donor": [],
@@ -135,8 +110,8 @@ def get_top_donations():
     }
 
     for transaction in results[1:]:
-        amount = transaction["total_donated"]
-        discord_id = transaction["_id"]
+        amount = transaction["finances"]["totalDonations"]
+        discord_id = transaction["discordId"]
         
         if amount >= 1_000_000_000:
             categories["1b+ Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000)}m")
