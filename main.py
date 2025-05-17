@@ -498,6 +498,8 @@ async def donation_command(ctx: SlashContext, staff: OptionType.USER, member: Op
     required=True,
     opt_type=OptionType.STRING
 )
+
+
 async def buy_in_command(ctx: SlashContext, staff: OptionType.USER, member: OptionType.USER, amount: str):
     await log_transaction(ctx, staff, member, amount, "buy in")
 
@@ -611,9 +613,9 @@ async def recent_transactions_command(ctx: SlashContext, transaction_type: str):
     transaction_list = transaction_list.rstrip("\n")
 
     await ctx.send(f"Got some results for ya!\n{transaction_list}")
+    
+    
 # Command that provides results for the given month/year
-
-
 @slash_command(name="monthresults", description="Get transaction information for a given month")
 @slash_option(
     name="month",
