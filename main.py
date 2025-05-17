@@ -96,7 +96,7 @@ def get_top_donations():
         return "No donations found."
 
     top_donor = results[0]
-    top_donor_line = f" \n:gp:**Top Donations**:gp:\n**Money Whale :whale:** \n<@!{top_donor['discordId']}> - {int(top_donor['finances']['totalDonations'] / 1_000_000):,}m\n\n"
+    top_donor_line = f" \n**Top Donations**\n**Money Whale :whale:** \n<@!{top_donor['discordId']}> - {int(top_donor['finances']['totalDonations'] / 1_000_000):,}m\n\n"
 
     categories = {
         "1b+ Donor": [],
@@ -133,7 +133,7 @@ def get_top_donations():
     formatted_message = top_donor_line
     for category, members in categories.items():
         if members:
-            formatted_message += f"**{category}** :gp:\n" + "\n".join(members) + "\n\n"
+            formatted_message += f"**{category}** \n" + "\n".join(members) + "\n\n"
             
     # Add timestamp at the end
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
