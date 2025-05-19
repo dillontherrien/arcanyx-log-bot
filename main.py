@@ -218,7 +218,7 @@ def add_to_user_total(transaction_type: str, user: OptionType.USER, amount: int)
     update_field = "finances." + field
     result = db.members.update_one(
         {"discordId": str(user.id)},
-        {"$set": {update_field: amount}},
+        {"$inc": {update_field: amount}},
     )
 
     if result.matched_count > 0:
