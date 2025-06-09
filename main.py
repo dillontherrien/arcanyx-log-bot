@@ -115,7 +115,7 @@ def get_top_donations():
         
         if amount >= 1_000_000_000:
             categories["1b+ Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
-        if amount >= 500_000_000:
+        elif amount >= 500_000_000:
             categories["500-1b Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 250_000_000:
             categories["250-499m Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
