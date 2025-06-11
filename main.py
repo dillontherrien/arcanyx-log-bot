@@ -95,42 +95,39 @@ def get_top_donations():
     if not results:
         return "No donations found."
 
-    top_donor = results[0]
-    top_donor_line = f" \n**Top Donations**\n**Money Whale :whale:** \n<@!{top_donor['discordId']}> - {int(top_donor['finances']['totalDonations'] / 1_000_000):,}m\n\n"
-
     categories = {
-        "1b+ Donor": [],
-        "500-1b Donor": [],
-        "250-499m Donor": [],
-        "100-249m Donor": [],
-        "50-99m Donor": [],
-        "25-49m Donor": [],
-        "10-24m Donor": [],
+        "<@&1263860564849987604> (1b+ Donor)": [],
+        "<@&1218903586222899270> (500m+ Donor)": [],
+        "<@&1268916957374189599> (250m+ Donor)": [],
+        "100m+ Donor": [],
+        "50m+ Donor": [],
+        "25m+ Donor": [],
+        "10m+ Donor": [],
         "0-9m Donor": []
     }
 
-    for transaction in results[1:]:
+    for transaction in results:
         amount = transaction["finances"]["totalDonations"]
         discord_id = transaction["discordId"]
         
         if amount >= 1_000_000_000:
-            categories["1b+ Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
+            categories["<@&1263860564849987604> (1b+ Donor)"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 500_000_000:
-            categories["500-1b Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
+            categories["<@&1218903586222899270> (500m+ Donor)"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 250_000_000:
-            categories["250-499m Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
+            categories["<@&1268916957374189599> (250m+ Donor)"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 100_000_000:
-            categories["100-249m Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
+            categories["100m+ Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 50_000_000:
-            categories["50-99m Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
+            categories["50m+ Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 25_000_000:
-            categories["25-49m Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
+            categories["25m+ Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 10_000_000:
-            categories["10-24m Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
+            categories["10m+ Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         else:
             categories["0-9m Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
 
-    formatted_message = top_donor_line
+    formatted_message = "__Donation Leaderboard__\n"
     for category, members in categories.items():
         if members:
             formatted_message += f"**{category}** \n" + "\n".join(members) + "\n\n"
