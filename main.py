@@ -1,13 +1,16 @@
+from datetime import datetime
 import os
 import re
 import logging
+import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 from dotenv import load_dotenv
 from interactions import Client, Intents, SlashCommandChoice, SlashContext, listen, slash_command, slash_option, OptionType
 from pymongo import MongoClient
-from constants import LOWER_LIMIT, UPPER_LIMIT, AMOUNT_PATTERN, NEGATIVE_TRANSACTIONS
+from constants import LOWER_LIMIT, UPPER_LIMIT, AMOUNT_PATTERN, NEGATIVE_TRANSACTIONS, GAP_AMOUNT
 from utils import Utils
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
@@ -17,6 +20,8 @@ logging.basicConfig(level=logging.INFO,
 load_dotenv()
 
 # Error handlers
+
+
 async def amount_invalid(ctx: SlashContext, amount: str):
     """
     Tells user that the given amount is invalid
@@ -109,34 +114,163 @@ def get_top_donations():
     for transaction in results:
         amount = transaction["finances"]["totalDonations"]
         discord_id = transaction["discordId"]
-        
+
         if amount >= 1_000_000_000:
-            categories["<@&1263860564849987604> (1b+ Donor)"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
+            categories["<@&1263860564849987604> (1b+ Donor)"].append(
+                f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 500_000_000:
-            categories["<@&1218903586222899270> (500m+ Donor)"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
+            categories["<@&1218903586222899270> (500m+ Donor)"].append(
+                f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 250_000_000:
-            categories["<@&1268916957374189599> (250m+ Donor)"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
+            categories["<@&1268916957374189599> (250m+ Donor)"].append(
+                f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 100_000_000:
-            categories["100m+ Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
+            categories["100m+ Donor"].append(
+                f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 50_000_000:
-            categories["50m+ Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
+            categories["50m+ Donor"].append(
+                f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 25_000_000:
-            categories["25m+ Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
+            categories["25m+ Donor"].append(
+                f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 10_000_000:
-            categories["10m+ Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
+            categories["10m+ Donor"].append(
+                f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         else:
-            categories["0-9m Donor"].append(f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
+            categories["0-9m Donor"].append(
+                f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
 
     formatted_message = "__Donation Leaderboard__\n"
     for category, members in categories.items():
         if members:
-            formatted_message += f"**{category}** \n" + "\n".join(members) + "\n\n"
-            
+            formatted_message += f"**{category}** \n" + \
+                "\n".join(members) + "\n\n"
+
     # Add timestamp at the end
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     formatted_message += f"_Updated as of {current_time}_"
 
     return formatted_message.rstrip("\n")
+
+
+def get_total_balance() -> str:
+    """
+    Gets the total balance of each staff member and creates a string message displaying the information
+    """
+    staff_members = db.members.find({"isStaff": True, "finances.currentBalance": {
+        "$gt": 0}}).sort({"finances.currentBalance": -1}).to_list()
+    logging.info(staff_members)
+    total_balance = f"TOTAL CLAN BALANCE: **{sum(staff["finances"]["currentBalance"] for staff in staff_members):,}**\n\n"
+
+    member_totals = "__**BALANCE BY USER**__\n"
+    member_totals += "\n".join(
+        f"<@!{staff.get('discordId')}> - {staff["finances"]["currentBalance"]:,}" for staff in staff_members)
+
+    return total_balance + member_totals
+
+
+def get_recent_transactions() -> str:
+    TRANSACTION_LIMIT = 15
+    
+    results = db.transaction_log.aggregate([
+        {
+            "$lookup": {
+                "from": "members",
+                "localField": "member_id",
+                "foreignField": "_id",
+                "as": "member_info"
+            }
+        },
+        {
+            "$unwind": {
+                "path": "$member_info",
+                "preserveNullAndEmptyArrays": True
+            }
+        },
+        {
+            "$lookup": {
+                "from": "members",
+                "localField": "staff_id",
+                "foreignField": "_id",
+                "as": "staff_info"
+            }
+        },
+        {
+            "$unwind": {
+                "path": "$staff_info",
+                "preserveNullAndEmptyArrays": True
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "discordUsername": "$member_info.discordUsername",
+                "staff_discordUsername": "$staff_info.discordUsername",
+                "type": 1,
+                "amount": 1,
+                "donation_time": 1,
+                "reason": 1
+            }
+        },
+        {
+            "$sort": {
+                "donation_time": -1
+            }
+        },
+        {
+            "$limit": TRANSACTION_LIMIT
+        }
+    ])
+
+    transaction_list = f"\n__**LAST {TRANSACTION_LIMIT} TRANSACTIONS**__\n```diff\n"
+    transaction_list += "  Amount         Type           Who            Staff          When (UTC)     Reason\n"
+
+    def pad_str(input_str: str) -> str:
+        global GAP_AMOUNT
+        if input_str is None:
+            input_str = ""
+        return input_str[:GAP_AMOUNT - 1].ljust(GAP_AMOUNT)
+
+    for transaction in results:
+        prefix = "-" if transaction["type"] in NEGATIVE_TRANSACTIONS else "+"
+        
+        raw_amount = transaction["amount"]
+        if raw_amount >= 1_000_000:
+            display_amount = f"{int(raw_amount / 1_000_000)}m"
+        else:
+            display_amount = f"{int(raw_amount / 1_000)}k"
+
+        amount = pad_str(display_amount)
+        transaction_type = pad_str(transaction["type"].capitalize())
+        who = pad_str(transaction["discordUsername"])
+        staff = pad_str(transaction["staff_discordUsername"])
+        
+        # Format donation_time
+        dt = transaction.get("donation_time")
+        if isinstance(dt, str):
+            dt = datetime.fromisoformat(dt)
+        if isinstance(dt, datetime):
+            # e.g., 6/19 20:14 (on Linux/macOS)
+            when = dt.strftime("%-m/%-d %H:%M")
+        else:
+            when = "?"
+
+        when = pad_str(when)   
+        reason = pad_str(transaction.get("reason")) if transaction["type"] in NEGATIVE_TRANSACTIONS else " " * GAP_AMOUNT
+        new_line = f"{prefix} {amount}{transaction_type}{who}{staff}{when}{reason}"
+
+        
+        transaction_list += new_line + "\n"
+
+    transaction_list += "\n```"
+    transaction_list += "\n\n"
+    transaction_list += get_total_balance()
+    
+    # Add relative current time in Discord format:
+    now = datetime.now(timezone.utc)
+    unix_ts = int(now.timestamp())
+    transaction_list += f"\n\nLast updated: <t:{unix_ts}:R>"
+    return transaction_list
 
 
 def get_member_from_discord_id(discord_id: str) -> Optional[dict]:
@@ -258,6 +392,9 @@ async def insert_transaction(ctx: SlashContext, transaction_type: str, user: Opt
     logging.info(f"Transaction inserted with _id: {result.inserted_id}")
 
     add_to_user_total(transaction_type, user, amount)
+    
+    asyncio.create_task(update_top_donations(ctx))
+    asyncio.create_task(update_recent_transactions(ctx))
 
 
 # TODO: Log transfer function
@@ -371,16 +508,9 @@ async def get_balance_command(ctx: SlashContext, staff: OptionType.USER = None):
 async def total_balance_command(ctx: SlashContext):
     await ctx.defer(ephemeral=True)
 
-    staff_members = db.members.find({"isStaff": True, "finances.currentBalance": {
-                                    "$gt": 0}}).sort({"finances.currentBalance": -1}).to_list()
-    logging.info(staff_members)
-    total_balance = f"TOTAL CLAN BALANCE: **{sum(staff["finances"]["currentBalance"] for staff in staff_members):,}**\n\n"
+    total_balance_str = get_total_balance()
 
-    member_totals = "__**BALANCE BY USER**__\n"
-    member_totals += "\n".join(
-        f"<@!{staff.get('discordId')}> - {staff["finances"]["currentBalance"]:,}" for staff in staff_members)
-
-    await ctx.send(total_balance + member_totals, ephemeral=True)
+    await ctx.send(total_balance_str, ephemeral=True)
 
 
 # Command that sets a staff member's balance
@@ -393,7 +523,7 @@ async def total_balance_command(ctx: SlashContext):
 )
 @slash_option(
     name="amount",
-    description="Amount of OSRS gold. Same logic as in game",
+    description="Amount of OSRS gold. Same logic as in game (Between 1 gp and 5 billion gp)",
     required=True,
     opt_type=OptionType.STRING
 )
@@ -441,13 +571,12 @@ async def set_balance_command(ctx: SlashContext, staff: OptionType.USER, amount:
 )
 @slash_option(
     name="amount",
-    description="Amount of OSRS gold. Same logic as in game",
+    description="Amount of OSRS gold. Same logic as in game (Between 1 gp and 5 billion gp)",
     required=True,
     opt_type=OptionType.STRING
 )
 async def donation_command(ctx: SlashContext, staff: OptionType.USER, member: OptionType.USER, amount: str):
     await log_transaction(ctx, staff, member, amount, "donation")
-    await update_top_donations(ctx)
 
 
 # Command that logs player buyins
@@ -466,12 +595,10 @@ async def donation_command(ctx: SlashContext, staff: OptionType.USER, member: Op
 )
 @slash_option(
     name="amount",
-    description="Amount of OSRS gold. Same logic as in game",
+    description="Amount of OSRS gold. Same logic as in game (Between 1 gp and 5 billion gp)",
     required=True,
     opt_type=OptionType.STRING
 )
-
-
 async def buy_in_command(ctx: SlashContext, staff: OptionType.USER, member: OptionType.USER, amount: str):
     await log_transaction(ctx, staff, member, amount, "buy in")
 
@@ -492,7 +619,7 @@ async def buy_in_command(ctx: SlashContext, staff: OptionType.USER, member: Opti
 )
 @slash_option(
     name="amount",
-    description="Amount of OSRS gold. Same logic as in game (Between 1 and 5 billion)",
+    description="Amount of OSRS gold. Same logic as in game (Between 1 gp and 5 billion gp)",
     required=True,
     opt_type=OptionType.STRING
 )
@@ -585,8 +712,8 @@ async def recent_transactions_command(ctx: SlashContext, transaction_type: str):
     transaction_list = transaction_list.rstrip("\n")
 
     await ctx.send(f"Got some results for ya!\n{transaction_list}")
-    
-    
+
+
 # Command that provides results for the given month/year
 @slash_command(name="monthresults", description="Get transaction information for a given month")
 @slash_option(
@@ -686,6 +813,10 @@ async def transaction_results_command(ctx: SlashContext, month: int, year: int):
 
     await ctx.send(f"Results for {month}/{year}\n\n Total donations: {total_donations:,}\n Total payouts: {total_payouts:,}\n Month's result: **{overall_balance:,}**", ephemeral=True)
 
+ # Global message IDs
+top_donations_message_id = None
+recent_transactions_message_id = None
+
 
 @slash_command(name="update_donation_leaderboard", description="Update the Top Donations message with the current timestamp")
 async def update_top_donations(ctx):
@@ -695,53 +826,86 @@ async def update_top_donations(ctx):
         await ctx.send("No top donations message found. Please wait until the bot has posted the initial message.", ephemeral=True)
         return
 
-    # Get the top donations formatted message
-    top_donations_message =  get_top_donations()
-
-    # Fetch the message to update
+    top_donations_message = get_top_donations()
     top_donations_channel = await bot.fetch_channel(int(os.getenv("TOP_DONATIONS_CHANNEL_ID")))
     message = await top_donations_channel.fetch_message(top_donations_message_id)
-
-    # Update the message with the current top donations
     await message.edit(content=top_donations_message)
 
-    # Acknowledge the command
-    await ctx.send("Top donations message updated!", ephemeral=True)
-    
-# Creates bot object
+
+@slash_command(name="update_recent_transactions", description="Update the Recent Transactions message")
+async def update_recent_transactions(ctx: SlashContext):
+    global recent_transactions_message_id
+
+    if recent_transactions_message_id is None:
+        await ctx.send("No recent transactions message found. Please wait until the bot has posted the initial message.", ephemeral=True)
+        return
+
+    message_content = get_recent_transactions()
+    channel = await bot.fetch_channel(int(os.getenv("RECENT_TRANSACTIONS_CHANNEL_ID")))
+    message = await channel.fetch_message(recent_transactions_message_id)
+    await message.edit(content=message_content)
+
+
 bot = Client(intents=Intents.DEFAULT)
 
-top_donations_message_id = None
 
 @listen()
 async def on_ready():
     global top_donations_message_id
+    global recent_transactions_message_id
+
     logging.info("Bot is ready")
     logging.info(f"This bot is owned by {bot.owner}")
 
-    # Fetch the channel and message
+    # ---- TOP DONATIONS ----
     TOP_DONATIONS_CHANNEL_ID = int(os.getenv("TOP_DONATIONS_CHANNEL_ID"))
     top_donations_channel = await bot.fetch_channel(TOP_DONATIONS_CHANNEL_ID)
 
     if top_donations_channel:
-        # Fetch last 50 messages and check for an existing message
-        messages = [msg async for msg in top_donations_channel.history(limit=50)]
+        messages = [msg async for msg in top_donations_channel.history(limit=100)]
 
         for msg in messages:
             if msg.author.id == bot.user.id and "Donor" in msg.content:
                 top_donations_message_id = msg.id
-                logging.info(f"Found existing top donations message with ID: {top_donations_message_id}")
+                logging.info(
+                    f"Found existing top donations message with ID: {top_donations_message_id}")
                 break
 
         if not top_donations_message_id:
-            content = "**Top Donations**\n_This will be updated with the latest donation info._"
+            content = get_top_donations()
             sent_message = await top_donations_channel.send(content)
             top_donations_message_id = sent_message.id
-            logging.info(f"Sent new top donations message with ID: {top_donations_message_id}")
+            logging.info(
+                f"Sent new top donations message with ID: {top_donations_message_id}")
     else:
         logging.warning("Could not find the top donations channel.")
 
-# Starts bot
+    # ---- RECENT TRANSACTIONS ----
+    RECENT_TRANSACTIONS_CHANNEL_ID = int(
+        os.getenv("RECENT_TRANSACTIONS_CHANNEL_ID"))
+    recent_transactions_channel = await bot.fetch_channel(RECENT_TRANSACTIONS_CHANNEL_ID)
+
+    if recent_transactions_channel:
+        messages = [msg async for msg in recent_transactions_channel.history(limit=100)]
+
+        for msg in messages:
+            if msg.author.id == bot.user.id and "Amount" in msg.content and "Type" in msg.content:
+                recent_transactions_message_id = msg.id
+                logging.info(
+                    f"Found existing recent transactions message with ID: {recent_transactions_message_id}")
+                break
+
+        if not recent_transactions_message_id:
+            content = get_recent_transactions()
+            logging.info(content)
+            sent_message = await recent_transactions_channel.send(content)
+            recent_transactions_message_id = sent_message.id
+            logging.info(
+                f"Sent new recent transactions message with ID: {recent_transactions_message_id}")
+    else:
+        logging.warning("Could not find the recent transactions channel.")
+
+
 if __name__ == "__main__":
     logging.info("Starting bot...")
     assert os.getenv("BOT_TOKEN"), "Missing DISCORD_TOKEN!"
