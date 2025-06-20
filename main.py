@@ -104,7 +104,7 @@ def get_top_donations():
         "<@&1263860564849987604> (1b+ Donor)": [],
         "<@&1218903586222899270> (500m+ Donor)": [],
         "<@&1268916957374189599> (250m+ Donor)": [],
-        "100m+ Donor": [],
+        "<@&1268919266380353577> (100m+ Donor)": [],
         "50m+ Donor": [],
         "25m+ Donor": [],
         "10m+ Donor": [],
@@ -125,7 +125,7 @@ def get_top_donations():
             categories["<@&1268916957374189599> (250m+ Donor)"].append(
                 f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 100_000_000:
-            categories["100m+ Donor"].append(
+            categories["<@&1268919266380353577> (100m+ Donor)"].append(
                 f"<@!{discord_id}> - {int(amount / 1_000_000):,}m")
         elif amount >= 50_000_000:
             categories["50m+ Donor"].append(
