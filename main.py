@@ -160,7 +160,7 @@ def get_total_balance() -> str:
     staff_members = db.members.find({"isStaff": True, "finances.currentBalance": {
         "$gt": 0}}).sort({"finances.currentBalance": -1}).to_list()
     logging.info(staff_members)
-    total_balance = f"TOTAL CLAN BALANCE: **{sum(staff["finances"]["currentBalance"] for staff in staff_members):,}**\n\n"
+    total_balance = f"TOTAL CLAN BALANCE: **{sum(staff["finances"]["currentBalance"] for staff in staff_members):,}gp**\n\n"
 
     member_totals = "__**BALANCE BY USER**__\n"
     member_totals += "\n".join(
@@ -223,13 +223,15 @@ def get_recent_transactions() -> str:
     ])
 
     transaction_list = f"\n__**LAST {TRANSACTION_LIMIT} TRANSACTIONS**__\n```diff\n"
-    transaction_list += "  Amount         Type           Who            Staff          When (UTC)     Reason\n"
+    transaction_list += "  Amount   Type        Who            Staff          When (UTC)     Reason\n"
 
-    def pad_str(input_str: str) -> str:
+    def pad_str(input_str: str, custom_pad: int = None) -> str:
         global GAP_AMOUNT
+        if custom_pad is None:
+            custom_pad = GAP_AMOUNT
         if input_str is None:
             input_str = ""
-        return input_str[:GAP_AMOUNT - 1].ljust(GAP_AMOUNT)
+        return input_str[:custom_pad - 1].ljust(custom_pad)
 
     for transaction in results:
         prefix = "-" if transaction["type"] in NEGATIVE_TRANSACTIONS else "+"
@@ -240,8 +242,8 @@ def get_recent_transactions() -> str:
         else:
             display_amount = f"{int(raw_amount / 1_000)}k"
 
-        amount = pad_str(display_amount)
-        transaction_type = pad_str(transaction["type"].capitalize())
+        amount = pad_str(display_amount, GAP_AMOUNT - 6)
+        transaction_type = pad_str(transaction["type"].capitalize(), GAP_AMOUNT - 3)
         who = pad_str(transaction["discordUsername"])
         staff = pad_str(transaction["staff_discordUsername"])
         
@@ -256,7 +258,7 @@ def get_recent_transactions() -> str:
             when = "?"
 
         when = pad_str(when)   
-        reason = pad_str(transaction.get("reason")) if transaction["type"] in NEGATIVE_TRANSACTIONS else " " * GAP_AMOUNT
+        reason = pad_str(transaction.get("reason"), GAP_AMOUNT + 10) if transaction["type"] in NEGATIVE_TRANSACTIONS else " " * (GAP_AMOUNT + 10)
         new_line = f"{prefix} {amount}{transaction_type}{who}{staff}{when}{reason}"
 
         
