@@ -164,7 +164,7 @@ def get_total_balance() -> str:
 
     member_totals = "__**BALANCE BY USER**__\n"
     member_totals += "\n".join(
-        f"<@!{staff.get('discordId')}> - {staff["finances"]["currentBalance"]:,}" for staff in staff_members)
+        f"<@!{staff.get('discordId')}> - {staff["finances"]["currentBalance"]:,}gp" for staff in staff_members)
 
     return total_balance + member_totals
 
