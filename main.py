@@ -258,7 +258,7 @@ def get_recent_transactions() -> str:
             when = "?"
 
         when = pad_str(when)   
-        reason = pad_str(transaction.get("reason"), GAP_AMOUNT + 10) if transaction["type"] in NEGATIVE_TRANSACTIONS else " " * (GAP_AMOUNT + 10)
+        reason = transaction.get("reason") if transaction["type"] in NEGATIVE_TRANSACTIONS else " " * (GAP_AMOUNT + 10)
         new_line = f"{prefix} {amount}{transaction_type}{who}{staff}{when}{reason}"
 
         
