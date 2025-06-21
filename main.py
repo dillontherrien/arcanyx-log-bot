@@ -171,7 +171,7 @@ def get_total_balance() -> str:
 
 def get_recent_transactions() -> str:
     TRANSACTION_LIMIT = 15
-    
+
     results = db.transaction_log.aggregate([
         {
             "$lookup": {
@@ -235,7 +235,7 @@ def get_recent_transactions() -> str:
 
     for transaction in results:
         prefix = "-" if transaction["type"] in NEGATIVE_TRANSACTIONS else "+"
-        
+
         raw_amount = transaction["amount"]
         if raw_amount >= 1_000_000:
             display_amount = f"{int(raw_amount / 1_000_000)}m"
@@ -243,10 +243,11 @@ def get_recent_transactions() -> str:
             display_amount = f"{int(raw_amount / 1_000)}k"
 
         amount = pad_str(display_amount, GAP_AMOUNT - 6)
-        transaction_type = pad_str(transaction["type"].capitalize(), GAP_AMOUNT - 3)
+        transaction_type = pad_str(
+            transaction["type"].capitalize(), GAP_AMOUNT - 3)
         who = pad_str(transaction["discordUsername"])
         staff = pad_str(transaction["staff_discordUsername"])
-        
+
         # Format donation_time
         dt = transaction.get("donation_time")
         if isinstance(dt, str):
@@ -257,17 +258,17 @@ def get_recent_transactions() -> str:
         else:
             when = "?"
 
-        when = pad_str(when)   
-        reason = transaction.get("reason") if transaction["type"] in NEGATIVE_TRANSACTIONS else " " * (GAP_AMOUNT + 10)
+        when = pad_str(when)
+        reason = transaction.get(
+            "reason") if transaction["type"] in NEGATIVE_TRANSACTIONS else " " * (GAP_AMOUNT + 10)
         new_line = f"{prefix} {amount}{transaction_type}{who}{staff}{when}{reason}"
 
-        
         transaction_list += new_line + "\n"
 
     transaction_list += "\n```"
     transaction_list += "\n\n"
     transaction_list += get_total_balance()
-    
+
     # Add relative current time in Discord format:
     now = datetime.now(timezone.utc)
     unix_ts = int(now.timestamp())
@@ -394,27 +395,86 @@ async def insert_transaction(ctx: SlashContext, transaction_type: str, user: Opt
     logging.info(f"Transaction inserted with _id: {result.inserted_id}")
 
     add_to_user_total(transaction_type, user, amount)
-    
+
     asyncio.create_task(update_top_donations(ctx))
     asyncio.create_task(update_recent_transactions(ctx))
 
 
 # TODO: Log transfer function
-# async def log_transfer(ctx: SlashContext, user_from: str, user_to: str, amount: str):
-#     logging.info(f"Logging transfer: from_user={user_from}, to_user={user_to}, amount={amount}")
-#     await ctx.defer(ephemeral=True)
-#     amount_str : str = amount
-#     amount = amount.replace(",", "")
+async def log_transfer(ctx: SlashContext, staff_from_user: OptionType.USER, staff_to_user: OptionType.USER, amount: str):
+    logging.info(
+        f"Logging transfer: from_user={staff_from_user}, to_user={staff_from_user}, amount={amount}")
+    amount_str: str = amount
+    amount = amount.replace(",", "")
 
-#     if not re.match(AMOUNT_PATTERN, amount):
-#         amount_invalid(ctx, amount_str)
-#         return
+    if not re.match(AMOUNT_PATTERN, amount):
+        await amount_invalid(ctx, amount_str)
+        return
 
-#     amount = parse_amount(amount)
+    amount: int = Utils.parse_amount(amount)
 
-#     if not check_amount_limits(amount):
-#         amount_outside_limits(ctx, amount_str)
-#         return
+    if not Utils.check_amount_limits(amount):
+        await amount_outside_limits(ctx, amount_str)
+        return
+
+    if staff_from_user == staff_to_user:
+        logging.warning(
+            "'From' staff member is same as 'To' staff member.")
+        await ctx.send(f"You cannot transfer from and to the same staff member!")
+        return
+
+    staff_from = await get_staff_member_from_discord_id(str(staff_from_user.id))
+
+    if not staff_from:
+        await staff_not_found(ctx, staff_from_user)
+        logging.warning(
+            "'From' staff member not found. Cannot complete transaction.")
+        return
+
+    staff_to = await get_staff_member_from_discord_id(str(staff_to_user.id))
+
+    if not staff_to:
+        await staff_not_found(ctx, staff_to_user)
+        logging.warning(
+            "'From' staff member not found. Cannot complete transaction.")
+        return
+
+    logging.info(
+        f"Trying to get balance from {staff_from}. Their finances {staff_from.get("finances")}.")
+    staff_from_balance = staff_from.get("finances")["currentBalance"] or 0
+
+    if staff_from_balance < amount:
+        await ctx.send(f"<@!{staff_from.get('discordId')}> does not have the balance for this transfer. Current balance is **{staff_from_balance:,}**, Requested amount is **{amount:,}**")
+        return
+
+    logging.info(
+        f"Trying to get balance from {staff_to}. Their finances {staff_to.get("finances")}.")
+    staff_to_balance = staff_to.get("finances")["currentBalance"] or 0
+
+    staff_from_balance -= amount
+    set_staff_balance(staff_from, staff_from_balance)
+    logging.info(f"{staff_from}'s new balance is {staff_from_balance:,}")
+
+    staff_to_balance += amount
+    set_staff_balance(staff_to, staff_to_balance)
+    logging.info(f"{staff_to}'s new balance is {staff_to_balance:,}")
+    
+    transfer = {
+        "from_id": staff_from["_id"],
+        "to_id": staff_to["_id"],
+        "amount": amount,
+        "transfer_time": datetime.now(timezone.utc)
+    }
+
+    result = db.transfer_log.insert_one(transfer)
+    logging.info(f"Transfer inserted with _id: {result.inserted_id}")
+
+    await ctx.send(f"Transfer successful! **{amount:,}gp** transferred from <@!{staff_from.get('discordId')}> to <@!{staff_to.get('discordId')}>.", ephemeral=True)
+
+    logging.info(
+        f"Transfer successful! **{amount:,}gp** transferred from <@!{staff_from.get('discordId')}> to <@!{staff_to.get('discordId')}>.")
+
+    asyncio.create_task(update_recent_transactions(ctx))
 
 
 # Common function for donation and payout
@@ -555,6 +615,31 @@ async def set_balance_command(ctx: SlashContext, staff: OptionType.USER, amount:
 
     set_staff_balance(staff, amount)
     await ctx.send(f"<@!{staff.get('discordId')}>'s balance has been set to **{amount:,}**", ephemeral=True)
+
+
+# Command that transfers from one staff member's balance to another's
+@slash_command(name="transfer", description="Transfers balance from one staff member to another.")
+@slash_option(
+    name="from_staff",
+    description="Staff member that funds would be transfered FROM.",
+    required=True,
+    opt_type=OptionType.USER
+)
+@slash_option(
+    name="to_staff",
+    description="Staff member that funds would be transfered TO.",
+    required=True,
+    opt_type=OptionType.USER
+)
+@slash_option(
+    name="amount",
+    description="Amount of OSRS gold. Same logic as in game (Between 1 gp and 5 billion gp)",
+    required=True,
+    opt_type=OptionType.STRING
+)
+async def transfer_command(ctx: SlashContext, from_staff: OptionType.USER, to_staff: OptionType.USER, amount: str):
+    await ctx.defer(ephemeral=True)
+    await log_transfer(ctx, from_staff, to_staff, amount)
 
 
 # Command that logs player donations
@@ -855,7 +940,7 @@ bot = Client(intents=Intents.DEFAULT)
 async def on_ready():
     global top_donations_message_id
     global recent_transactions_message_id
-
+    bot.load_extension("interactions.ext.jurigged", poll=True)
     logging.info("Bot is ready")
     logging.info(f"This bot is owned by {bot.owner}")
 
