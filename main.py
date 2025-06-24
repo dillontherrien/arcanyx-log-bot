@@ -8,7 +8,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from interactions import Client, Intents, SlashCommandChoice, SlashContext, listen, slash_command, slash_option, OptionType
 from pymongo import MongoClient
-from constants import LOWER_LIMIT, UPPER_LIMIT, AMOUNT_PATTERN, NEGATIVE_TRANSACTIONS, GAP_AMOUNT
+from constants import LOWER_LIMIT, UPPER_LIMIT, AMOUNT_PATTERN, ALL_TRANSACTIONS, NEGATIVE_TRANSACTIONS, GAP_AMOUNT
 from utils import Utils
 
 
@@ -202,6 +202,16 @@ def get_recent_transactions() -> str:
             }
         },
         {
+            "$match": {
+                "type": {
+                    "$not": {
+                        "$regex": "event",
+                        "$options": "i"  # case-insensitive
+                    }
+                }
+            }
+        },
+        {
             "$project": {
                 "_id": 0,
                 "discordUsername": "$member_info.discordUsername",
@@ -276,6 +286,115 @@ def get_recent_transactions() -> str:
     return transaction_list
 
 
+def get_recent_events() -> str:
+    TRANSACTION_LIMIT = 15
+
+    results = db.transaction_log.aggregate([
+        {
+            "$lookup": {
+                "from": "members",
+                "localField": "member_id",
+                "foreignField": "_id",
+                "as": "member_info"
+            }
+        },
+        {
+            "$unwind": {
+                "path": "$member_info",
+                "preserveNullAndEmptyArrays": True
+            }
+        },
+        {
+            "$lookup": {
+                "from": "members",
+                "localField": "staff_id",
+                "foreignField": "_id",
+                "as": "staff_info"
+            }
+        },
+        {
+            "$unwind": {
+                "path": "$staff_info",
+                "preserveNullAndEmptyArrays": True
+            }
+        },
+        {
+            "$match": {
+                "type": {
+                    "$regex": "event",
+                    "$options": "i"
+                }
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "discordUsername": "$member_info.discordUsername",
+                "staff_discordUsername": "$staff_info.discordUsername",
+                "type": 1,
+                "amount": 1,
+                "donation_time": 1,
+                "reason": 1
+            }
+        },
+        {
+            "$sort": {
+                "donation_time": -1
+            }
+        },
+        {
+            "$limit": TRANSACTION_LIMIT
+        }
+    ])
+
+    transaction_list = f"\n__**LAST {TRANSACTION_LIMIT} EVENTS**__\n```fix\n"
+    transaction_list += "Amount   Who            Staff          When (UTC)     Reason\n"
+
+    def pad_str(input_str: str, custom_pad: int = None) -> str:
+        global GAP_AMOUNT
+        if custom_pad is None:
+            custom_pad = GAP_AMOUNT
+        if input_str is None:
+            input_str = ""
+        return input_str[:custom_pad - 1].ljust(custom_pad)
+
+    for transaction in results:
+
+        raw_amount = transaction["amount"]
+        if raw_amount >= 1_000_000:
+            display_amount = f"{int(raw_amount / 1_000_000)}m"
+        else:
+            display_amount = f"{int(raw_amount / 1_000)}k"
+
+        amount = pad_str(display_amount, GAP_AMOUNT - 6)
+        who = pad_str(transaction["discordUsername"])
+        staff = pad_str(transaction["staff_discordUsername"])
+
+        # Format donation_time
+        dt = transaction.get("donation_time")
+        if isinstance(dt, str):
+            dt = datetime.fromisoformat(dt)
+        if isinstance(dt, datetime):
+            # e.g., 6/19 20:14 (on Linux/macOS)
+            when = dt.strftime("%-m/%-d %H:%M")
+        else:
+            when = "?"
+
+        when = pad_str(when)
+        reason = transaction.get("reason")
+        new_line = f"{amount}{who}{staff}{when}{reason}"
+
+        transaction_list += new_line + "\n"
+
+    transaction_list += "\n```"
+
+    # Add relative current time in Discord format:
+    now = datetime.now(timezone.utc)
+    unix_ts = int(now.timestamp())
+    transaction_list += f"\n\nLast updated: <t:{unix_ts}:R>"
+    return transaction_list
+
+
 def get_member_from_discord_id(discord_id: str) -> Optional[dict]:
     """
     Gets member from database, if none present, creates one 
@@ -337,7 +456,7 @@ def add_to_user_total(transaction_type: str, user: OptionType.USER, amount: int)
     """
     Adds to user's running total of donations or payouts
     """
-    if transaction_type not in ["donation", "payout"]:
+    if transaction_type not in ALL_TRANSACTIONS:
         logging.warning(f"Invalid transaction type given: {transaction_type}")
         return
 
@@ -348,7 +467,8 @@ def add_to_user_total(transaction_type: str, user: OptionType.USER, amount: int)
             f"No user given to increase {transaction_type} total by **{amount:,}**.")
         return
 
-    field = "totalDonations" if transaction_type == "donation" else "totalPayouts"
+    field = "totalDonations" if transaction_type in [
+        "donation", "event"] else "totalPayouts"
     update_field = "finances." + field
     result = db.members.update_one(
         {"discordId": str(user.id)},
@@ -356,9 +476,10 @@ def add_to_user_total(transaction_type: str, user: OptionType.USER, amount: int)
     )
 
     if result.matched_count > 0:
-        logging.info(f"Updated {transaction_type} total to be {amount: ,}")
+        logging.info(f"Updated {field} total to be {amount: ,}")
     else:
-        logging.info(f"No updates were made, as there was no change")
+        logging.info(
+            f"No updates were made, as there was no member document found.")
 
 
 async def insert_transaction(ctx: SlashContext, transaction_type: str, user: OptionType.USER, staff: OptionType.USER, amount: int, reason: str = None):
@@ -398,6 +519,7 @@ async def insert_transaction(ctx: SlashContext, transaction_type: str, user: Opt
 
     asyncio.create_task(update_top_donations(ctx))
     asyncio.create_task(update_recent_transactions(ctx))
+    asyncio.create_task(update_recent_events(ctx))
 
 
 # TODO: Log transfer function
@@ -458,7 +580,7 @@ async def log_transfer(ctx: SlashContext, staff_from_user: OptionType.USER, staf
     staff_to_balance += amount
     set_staff_balance(staff_to, staff_to_balance)
     logging.info(f"{staff_to}'s new balance is {staff_to_balance:,}")
-    
+
     transfer = {
         "from_id": staff_from["_id"],
         "to_id": staff_to["_id"],
@@ -477,7 +599,47 @@ async def log_transfer(ctx: SlashContext, staff_from_user: OptionType.USER, staf
     asyncio.create_task(update_recent_transactions(ctx))
 
 
+async def log_event(ctx: SlashContext, staff: OptionType.USER, user: OptionType.USER, amount: str, reason: str = None):
+    logging.info(f"Logging event: user={user}, amount={amount}")
+    await ctx.defer(ephemeral=True)
+    amount_str: str = amount
+    amount = amount.replace(",", "")
+
+    if not re.match(AMOUNT_PATTERN, amount):
+        await amount_invalid(ctx, amount_str)
+        return
+
+    amount: int = Utils.parse_amount(amount)
+
+    if not Utils.check_amount_limits(amount):
+        await amount_outside_limits(ctx, amount_str)
+        return
+    given_staff = staff
+    staff = await get_staff_member_from_discord_id(str(given_staff.id))
+
+    if not staff:
+        await staff_not_found(ctx, given_staff)
+        logging.warning(
+            f"Command executor not staff member, cannot complete transaction!")
+        return
+
+    transaction_type = "event"
+
+    if not reason:
+        await ctx.send(f"A reason is required for an {transaction_type}! {transaction_type.capitalize} logging was not completed.")
+        logging.info(
+            f"No reason was given for the {transaction_type}. Stopping transaction")
+        return
+
+    await insert_transaction(ctx, transaction_type, user, staff, amount, reason)
+    await ctx.send(f"{transaction_type.capitalize()} Logged! Member {user.mention} donated **{amount:,}gp** via the event {reason}", ephemeral=True)
+
+    logging.info(
+        f"Transaction successfully logged: {transaction_type} for {user}")
+
 # Common function for donation and payout
+
+
 async def log_transaction(ctx: SlashContext, staff: OptionType.USER, user: OptionType.USER, amount: str, transaction_type: str, reason: str = None):
     logging.info(
         f"Logging transaction: type={transaction_type}, user={user}, amount={amount}")
@@ -640,6 +802,36 @@ async def set_balance_command(ctx: SlashContext, staff: OptionType.USER, amount:
 async def transfer_command(ctx: SlashContext, from_staff: OptionType.USER, to_staff: OptionType.USER, amount: str):
     await ctx.defer(ephemeral=True)
     await log_transfer(ctx, from_staff, to_staff, amount)
+
+
+# Command that logs player event
+@slash_command(name="event", description="Log an event")
+@slash_option(
+    name="staff",
+    description="Staff member logging this event",
+    required=True,
+    opt_type=OptionType.USER
+)
+@slash_option(
+    name="member",
+    description="Clan member donating the item/gold/bonds to the event winnings",
+    required=True,
+    opt_type=OptionType.USER
+)
+@slash_option(
+    name="amount",
+    description="Amount of OSRS gold. Same logic as in game (Between 1 gp and 5 billion gp)",
+    required=True,
+    opt_type=OptionType.STRING
+)
+@slash_option(
+    name="event_desc",
+    description="Short description of the event, for traceability purposes.",
+    required=True,
+    opt_type=OptionType.STRING
+)
+async def event_command(ctx: SlashContext, staff: OptionType.USER, member: OptionType.USER, amount: str, event_desc: str):
+    await log_event(ctx, staff, member, amount, event_desc)
 
 
 # Command that logs player donations
@@ -903,6 +1095,7 @@ async def transaction_results_command(ctx: SlashContext, month: int, year: int):
  # Global message IDs
 top_donations_message_id = None
 recent_transactions_message_id = None
+recent_events_message_id = None
 
 
 @slash_command(name="update_donation_leaderboard", description="Update the Top Donations message with the current timestamp")
@@ -933,6 +1126,19 @@ async def update_recent_transactions(ctx: SlashContext):
     await message.edit(content=message_content)
 
 
+@slash_command(name="update_recent_events", description="Update the Recent Transactions message")
+async def update_recent_events(ctx: SlashContext):
+    global recent_events_message_id
+
+    if recent_events_message_id is None:
+        await ctx.send("No recent transactions message found. Please wait until the bot has posted the initial message.", ephemeral=True)
+        return
+
+    message_content = get_recent_events()
+    channel = await bot.fetch_channel(int(os.getenv("RECENT_TRANSACTIONS_CHANNEL_ID")))
+    message = await channel.fetch_message(recent_events_message_id)
+    await message.edit(content=message_content)
+
 bot = Client(intents=Intents.DEFAULT)
 
 
@@ -940,6 +1146,7 @@ bot = Client(intents=Intents.DEFAULT)
 async def on_ready():
     global top_donations_message_id
     global recent_transactions_message_id
+    global recent_events_message_id
     bot.load_extension("interactions.ext.jurigged", poll=True)
     logging.info("Bot is ready")
     logging.info(f"This bot is owned by {bot.owner}")
@@ -976,11 +1183,15 @@ async def on_ready():
         messages = [msg async for msg in recent_transactions_channel.history(limit=100)]
 
         for msg in messages:
-            if msg.author.id == bot.user.id and "Amount" in msg.content and "Type" in msg.content:
+            if not recent_transactions_message_id and msg.author.id == bot.user.id and "diff" in msg.content:
                 recent_transactions_message_id = msg.id
                 logging.info(
                     f"Found existing recent transactions message with ID: {recent_transactions_message_id}")
-                break
+
+            if not recent_events_message_id and msg.author.id == bot.user.id and "fix" in msg.content:
+                recent_events_message_id = msg.id
+                logging.info(
+                    f"Found existing recent events message with ID: {recent_events_message_id}")
 
         if not recent_transactions_message_id:
             content = get_recent_transactions()
@@ -989,6 +1200,14 @@ async def on_ready():
             recent_transactions_message_id = sent_message.id
             logging.info(
                 f"Sent new recent transactions message with ID: {recent_transactions_message_id}")
+
+        if not recent_events_message_id:
+            content = get_recent_events()
+            logging.info(content)
+            sent_message = await recent_transactions_channel.send(content)
+            recent_events_message_id = sent_message.id
+            logging.info(
+                f"Sent new recent events message with ID: {recent_events_message_id}")
     else:
         logging.warning("Could not find the recent transactions channel.")
 
