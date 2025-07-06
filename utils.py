@@ -56,3 +56,6 @@ class Utils:
         Returns True if given year is between 2025 and the current year (inclusive)
         """
         return 2025 <= year <= datetime.now().year
+    
+    def is_valid_discord_id(id_str: str) -> bool:
+        return id_str.isdigit() and 17 <= len(id_str) <= 20

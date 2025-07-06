@@ -6,7 +6,8 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 from dotenv import load_dotenv
-from interactions import Client, Intents, SlashCommandChoice, SlashContext, listen, slash_command, slash_option, OptionType
+from interactions import Client, Intents, SlashCommandChoice, SlashContext, listen, slash_command, slash_option, OptionType, Member
+from interactions.api.events import MemberAdd
 from pymongo import MongoClient
 from constants import LOWER_LIMIT, UPPER_LIMIT, AMOUNT_PATTERN, ALL_TRANSACTIONS, NEGATIVE_TRANSACTIONS, GAP_AMOUNT
 from utils import Utils
@@ -1139,8 +1140,115 @@ async def update_recent_events(ctx: SlashContext):
     message = await channel.fetch_message(recent_events_message_id)
     await message.edit(content=message_content)
 
-bot = Client(intents=Intents.DEFAULT)
+@slash_command(
+    name="blacklist",
+    description="Manage blacklisted discord users.",
+    sub_cmd_name="add",
+    sub_cmd_description="Add discord user to blacklist",
+)
+@slash_option(
+    name="discord_id",
+    description="Discord ID for the user you want",
+    required=True,
+    opt_type=OptionType.STRING,
+    min_length=17,
+    max_length=20
+)
+@slash_option(
+    name="reason",
+    description="Reason for adding the user to the blacklist",
+    required=True,
+    opt_type=OptionType.STRING
+)
+async def blacklist_add_command(ctx: SlashContext, discord_id: str, reason: str):
+    if not Utils.is_valid_discord_id(discord_id):
+        await ctx.send(f"Discord ID {discord_id} is not a valid ID. The blacklist addition was cancelled.", ephemeral=True)
+        return
+    
+    if not reason:
+        await ctx.send(f"No reason given. The blacklist addition was cancelled.", ephemeral=True)
+        return
+    
+    result = db.blacklist.find_one({"discord_id": discord_id})
 
+    if result:
+        await ctx.send(f"Player already logged in blacklist. The blacklist addition was cancelled.", ephemeral=True)
+        return
+
+    new_blacklist = {
+        "discord_id": discord_id,
+        "reason": reason,
+        "time": datetime.now(timezone.utc)
+    }
+
+    result = db.blacklist.insert_one(new_blacklist)
+    print(f"New blacklist added {result}")
+    await ctx.send(f"User with Discord ID `{discord_id}` added to blacklist for `{reason}`")
+    
+
+@listen(MemberAdd)
+async def on_member_join(event: MemberAdd):
+    joined_member: Member = event.member
+    discord_id = str(joined_member.id)
+
+    print(f"{discord_id} has joined the server. Checking if user is on the blacklist...")
+
+    result = db.blacklist.find_one({"discord_id": discord_id})
+
+    if result:
+        print(f"User found in blacklist! Alerting staff team.")
+        reason = result.get("reason", "No reason provided.")
+        timestamp = result.get("time", "")
+
+        # Format for Discord relative time (must be in seconds)
+        if isinstance(timestamp, datetime):
+            if timestamp.tzinfo is None:
+                # Assume it's already UTC if tz is missing
+                print("⚠️ Naive datetime detected — assuming UTC.")
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+            else:
+                # Convert to UTC to be safe
+                timestamp = timestamp.astimezone(timezone.utc)
+                
+            unix_ts = int(timestamp.timestamp())
+            relative_time = f"<t:{unix_ts}:R>"
+        else:
+            relative_time = "Unknown time"
+
+        # # DM the user
+        # try:
+        #     await joined_member.send(
+        #         f"You were removed from the server for the following reason:\n**{reason}**"
+        #     )
+        # except Exception as e:
+        #     print(f"Could not DM {discord_id}: {e}")
+
+        # # Kick the user
+        # try:
+        #     await joined_member.kick(reason=f"Blacklisted: {reason}")
+        #     print(f"Kicked blacklisted user {discord_id}.")
+        # except Exception as e:
+        #     print(f"Kick failed for {discord_id}: {e}")
+
+        # Log to the channel
+        channel_id = int(os.getenv("BLACKLIST_CHANNEL_ID", "0"))
+        if channel_id:
+            try:
+                log_channel = await event.guild.fetch_channel(channel_id)
+                await log_channel.send(
+                    f"🚫 **Blacklisted user joined the discord**\n"
+                    f"> **User**: <@!{discord_id}>\n"
+                    f"> **Discord ID**: `{discord_id}`\n"
+                    f"> **Reason**: {reason}\n"
+                    f"> **Blacklisted**: {relative_time}"
+                )
+            except Exception as e:
+                print(f"Failed to post to blacklist log channel: {e}")
+    else:
+        print(f"User {discord_id} is not blacklisted.")
+    
+    
+bot = Client(intents=Intents.ALL)
 
 @listen()
 async def on_ready():
