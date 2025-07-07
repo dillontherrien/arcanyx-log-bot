@@ -1164,6 +1164,14 @@ async def blacklist_add_command(ctx: SlashContext, discord_id: str, reason: str)
     if not Utils.is_valid_discord_id(discord_id):
         await ctx.send(f"Discord ID {discord_id} is not a valid ID. The blacklist addition was cancelled.", ephemeral=True)
         return
+
+    staff = await get_staff_member_from_discord_id(str(ctx.author_id))
+
+    if not staff:
+        await staff_not_found(ctx, ctx.author)
+        logging.warning(
+            f"Command executor not staff member, cannot complete transaction!")
+        return
     
     if not reason:
         await ctx.send(f"No reason given. The blacklist addition was cancelled.", ephemeral=True)
@@ -1178,7 +1186,8 @@ async def blacklist_add_command(ctx: SlashContext, discord_id: str, reason: str)
     new_blacklist = {
         "discord_id": discord_id,
         "reason": reason,
-        "time": datetime.now(timezone.utc)
+        "time": datetime.now(timezone.utc),
+        "staff_id": staff["_id"],
     }
 
     result = db.blacklist.insert_one(new_blacklist)
@@ -1193,13 +1202,37 @@ async def on_member_join(event: MemberAdd):
 
     print(f"{discord_id} has joined the server. Checking if user is on the blacklist...")
 
-    result = db.blacklist.find_one({"discord_id": discord_id})
+    result = db.blacklist.aggregate([
+        {"$match": {"discord_id": discord_id}},  # or "discordId" here if the blacklisted user also uses that field name
+        {
+            "$lookup": {
+                "from": "members",
+                "localField": "staff_id",
+                "foreignField": "_id",
+                "as": "staff_info"
+            }
+        },
+        {"$unwind": "$staff_info"},
+        {
+            "$project": {
+                "discord_id": 1,
+                "reason": 1,
+                "time": 1,
+                "staff_id": 1,
+                "staff_discord_id": "$staff_info.discordId"
+            }
+        }
+    ])
+
+    result = next(result, None)
+
 
     if result:
         print(f"User found in blacklist! Alerting staff team.")
         reason = result.get("reason", "No reason provided.")
         timestamp = result.get("time", "")
-
+        staff_discord_id = result.get("staff_discord_id", "")
+        
         # Format for Discord relative time (must be in seconds)
         if isinstance(timestamp, datetime):
             if timestamp.tzinfo is None:
@@ -1240,7 +1273,8 @@ async def on_member_join(event: MemberAdd):
                     f"> **User**: <@!{discord_id}>\n"
                     f"> **Discord ID**: `{discord_id}`\n"
                     f"> **Reason**: {reason}\n"
-                    f"> **Blacklisted**: {relative_time}"
+                    f"> **Blacklisted**: {relative_time}\n"
+                    f"> **Blacklisted By**: <@!{staff_discord_id}>"
                 )
             except Exception as e:
                 print(f"Failed to post to blacklist log channel: {e}")
