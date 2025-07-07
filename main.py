@@ -1274,7 +1274,8 @@ async def on_member_join(event: MemberAdd):
                     f"> **Discord ID**: `{discord_id}`\n"
                     f"> **Reason**: {reason}\n"
                     f"> **Blacklisted**: {relative_time}\n"
-                    f"> **Blacklisted By**: <@!{staff_discord_id}>"
+                    f"> **Blacklisted By**: <@!{staff_discord_id}>\n"
+                    f"<@&1268919266380353577>"
                 )
             except Exception as e:
                 print(f"Failed to post to blacklist log channel: {e}")
